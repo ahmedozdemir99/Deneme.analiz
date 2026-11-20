@@ -26,6 +26,7 @@ import { OverviewView } from './components/OverviewView';
 import { ExamArchiveView } from './components/ExamArchiveView';
 import { SchoolWeaknessView } from './components/SchoolWeaknessView';
 import { UploadModal } from './components/UploadModal';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 
 type NavTab = 'students' | 'overview' | 'archive' | 'weaknesses';
 
@@ -252,15 +253,18 @@ export default function App() {
             })}
           </nav>
 
-          {/* Zone 3: Single Primary CTA */}
-          <button
-            type="button"
-            onClick={() => setIsUploadOpen(true)}
-            className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
-          >
-            <FileUp className="h-4 w-4" />
-            PDF / Excel Yükle
-          </button>
+          {/* Zone 3: Actions (PWA Install + Primary Upload CTA) */}
+          <div className="flex shrink-0 items-center gap-2">
+            <PWAInstallButton />
+            <button
+              type="button"
+              onClick={() => setIsUploadOpen(true)}
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
+            >
+              <FileUp className="h-4 w-4" />
+              PDF / Excel Yükle
+            </button>
+          </div>
         </div>
 
         {/* Mobile navigation row */}
@@ -396,6 +400,7 @@ export default function App() {
         onReloadSamplePdf={loadBundledSamplePdf}
         isLoadingSample={isLoadingSample}
       />
+      <OfflineIndicator />
     </div>
   );
 }
