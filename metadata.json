@@ -1,0 +1,6 @@
+{
+  "name": "LGS Deneme Analiz & Öğrenci Arşivi",
+  "description": "Toplu LGS deneme sonuç PDF dosyalarını otomatik okuyarak her öğrenci için ders bazlı doğru, yanlış, boş, net arşivi, çoklu deneme karşılaştırma grafikleri ve kazanım eksikleri analizi sunan okul takip uygulaması.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
