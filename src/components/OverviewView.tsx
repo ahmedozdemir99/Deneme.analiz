@@ -30,8 +30,9 @@ import {
   Users,
   Search,
   GitCompareArrows,
+  FileSpreadsheet,
 } from 'lucide-react';
-import { ExamArchiveState, SUBJECT_LIST, SubjectKey } from '../types/exam';
+import { ExamArchiveState, SUBJECT_LIST } from '../types/exam';
 import {
   buildClassComparison,
   formatTrDelta,
@@ -39,6 +40,7 @@ import {
   getStudentProgressSummary,
 } from '../utils/analytics';
 import { ChartKind, ChartTypeSelector, VIVID_PALETTE } from './ChartTypeSelector';
+import { exportSchoolArchiveToExcel } from '../utils/excelHandler';
 
 interface OverviewViewProps {
   state: ExamArchiveState;
@@ -1031,6 +1033,15 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
             >
               <Users className="h-3.5 w-3.5" />
               {showStudentRows ? 'Öğrencileri Gizle' : 'Öğrenci İsimlerini Göster'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => exportSchoolArchiveToExcel(state, activeExam?.id, compareExam?.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Excel (.xlsx)
             </button>
           </div>
         </div>

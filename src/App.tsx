@@ -259,7 +259,7 @@ export default function App() {
             className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
           >
             <FileUp className="h-4 w-4" />
-            PDF Yükle
+            PDF / Excel Yükle
           </button>
         </div>
 
