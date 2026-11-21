@@ -58,7 +58,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
         onClick={() => void cloud.signInWithGoogle()}
         disabled={cloud.isSigningIn}
         title="Google ile giriş yaparak mevcut yedeğinizi açın ve yeni denemeleri yedekleyin"
-        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
+        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border border-slate-300 bg-white px-2 sm:px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
       >
         {cloud.isSigningIn ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
@@ -76,11 +76,11 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
   const isOffline = cloud.syncStatus === 'offline';
 
   return (
-    <div className="relative" ref={panelRef}>
+    <div className="sm:relative" ref={panelRef}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+        className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border px-2 sm:px-2.5 text-xs font-semibold transition-colors ${
           isError
             ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
             : isOffline
@@ -105,7 +105,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+        <div className="absolute right-3 top-full z-50 mt-2 w-72 max-w-[calc(100vw-1.5rem)] sm:right-0 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
           <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
             <div className="min-w-0">
               <div className="truncate text-xs font-bold text-slate-900">
@@ -146,7 +146,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               type="button"
               onClick={() => void cloud.backupNow()}
               disabled={isBusy || isOffline || !cloud.hasPendingChanges}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
+              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
             >
               {isBusy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -160,7 +160,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               type="button"
               onClick={() => void cloud.restoreFromCloud()}
               disabled={isBusy}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
               <CloudDownload className="h-3.5 w-3.5" />
               Buluttan Geri Yükle
@@ -173,7 +173,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
                 await cloud.signOutFromCloud();
               }}
               disabled={isBusy}
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+              className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
             >
               <LogOut className="h-3.5 w-3.5" />
               Çıkış Yap

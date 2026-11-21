@@ -15,7 +15,7 @@ export const PWAInstallButton: React.FC = () => {
       <button
         type="button"
         onClick={() => void install()}
-        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border border-slate-300 bg-white px-2 sm:px-3 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50"
         title="Uygulamayı cihazınıza kurun"
       >
         <Download className="h-3.5 w-3.5 text-blue-700" />
@@ -31,7 +31,7 @@ export const PWAInstallButton: React.FC = () => {
         <button
           type="button"
           onClick={() => setShowIOSGuide(true)}
-          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border border-slate-300 bg-white px-2 sm:px-2.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50"
           title="Ana Ekrana Ekle"
         >
           <Smartphone className="h-3.5 w-3.5 text-blue-700" />

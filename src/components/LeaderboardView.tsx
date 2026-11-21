@@ -354,7 +354,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
   return (
     <div className="space-y-4">
       {/* Page Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">
             Çok İşlevli Başarı Sıralaması ve Deneme Ortalamaları
@@ -364,11 +364,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 gap-2 lg:flex lg:shrink-0 lg:flex-wrap lg:items-center">
           <button
             type="button"
             onClick={() => setShowChart((prev) => !prev)}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+            className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-center text-xs sm:px-3 font-semibold transition-colors ${
               showChart
                 ? 'border-blue-700 bg-blue-700 text-white'
                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
@@ -381,7 +381,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
           <button
             type="button"
             onClick={() => exportLeaderboardToExcel(sortedExams, filteredRows)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
+            className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-center text-xs sm:px-3 font-semibold text-emerald-800 transition-colors hover:bg-emerald-100"
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
             Excel İndir (.xlsx)
@@ -505,8 +505,8 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
       <section className="space-y-3.5 rounded-xl border border-slate-200 bg-white p-4">
         {/* Row 1: General Ranking Metric Pills + Direction Toggle */}
         <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+          <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
+            <span className="col-span-full mr-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
               Genel Sıralama:
             </span>
             {GENERAL_METRICS.map((m) => {
@@ -519,7 +519,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                     setSelectedSubject('ALL');
                     setGeneralMetric(m.id);
                   }}
-                  className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                  className={`min-h-10 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold transition-colors sm:px-2.5 ${
                     active
                       ? 'border-blue-700 bg-blue-700 text-white shadow-xs'
                       : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-800'
@@ -532,11 +532,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
           </div>
 
           {/* Sort Direction + View Mode */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
               title="Sıralama yönünü değiştir"
             >
               {sortDirection === 'desc' ? (
@@ -552,11 +552,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
               )}
             </button>
 
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+            <div className="grid min-h-10 grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-0.5 sm:inline-grid">
               <button
                 type="button"
                 onClick={() => setViewMode('summary')}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center justify-center gap-1.5 rounded-md px-1.5 py-1 text-center sm:px-2.5 text-xs font-semibold transition-colors ${
                   viewMode === 'summary'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -568,7 +568,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('full_matrix')}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center justify-center gap-1.5 rounded-md px-1.5 py-1 text-center sm:px-2.5 text-xs font-semibold transition-colors ${
                   viewMode === 'full_matrix'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -582,15 +582,15 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         </div>
 
         {/* Row 2: Subject-Specific Average Net Ranking Bar */}
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
-          <span className="mr-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:items-center border-t border-slate-100 pt-3">
+          <span className="col-span-full mr-1 inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">
             <BookOpen className="h-3.5 w-3.5 text-slate-400" />
             Derse Göre Sırala:
           </span>
           <button
             type="button"
             onClick={() => setSelectedSubject('ALL')}
-            className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+            className={`min-h-10 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold transition-colors sm:px-2.5 ${
               selectedSubject === 'ALL'
                 ? 'border-slate-900 bg-slate-900 text-white'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -605,7 +605,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                 key={s.key}
                 type="button"
                 onClick={() => setSelectedSubject(s.key)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                className={`inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border px-1.5 py-1.5 text-center text-xs font-semibold transition-colors sm:px-2.5 ${
                   isSelected
                     ? 'border-transparent text-white shadow-xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
@@ -613,7 +613,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                 style={isSelected ? { backgroundColor: s.color } : undefined}
               >
                 <span
-                  className="inline-block h-2 w-2 rounded-full"
+                  className="inline-block size-2 shrink-0 rounded-full"
                   style={{ backgroundColor: isSelected ? '#FFFFFF' : s.color }}
                 />
                 {s.label}
@@ -635,11 +635,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={() => setSelectedClass('ALL')}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors tabular-nums ${
+              className={`min-h-9 rounded-md px-2.5 text-center text-xs font-medium transition-colors tabular-nums ${
                 selectedClass === 'ALL'
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -654,7 +654,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                   key={cls}
                   type="button"
                   onClick={() => setSelectedClass(cls)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors tabular-nums ${
+                  className={`min-h-9 rounded-md px-2.5 text-center text-xs font-medium transition-colors tabular-nums ${
                     selectedClass === cls
                       ? 'bg-slate-900 text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -790,7 +790,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                     >
                       <span className="inline-flex items-center gap-1">
                         <span
-                          className="inline-block h-2 w-2 rounded-full"
+                          className="inline-block size-2 shrink-0 rounded-full"
                           style={{ backgroundColor: s.color }}
                         />
                         {s.shortLabel}

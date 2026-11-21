@@ -218,7 +218,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
           )}
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {sortedExams.map((exam, idx) => {
             const isSelected = selectedExamId === exam.id;
             const participantCount = examParticipantCounts.get(exam.id) ?? exam.studentCount;
@@ -227,7 +227,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 key={exam.id}
                 type="button"
                 onClick={() => setSelectedExamId(exam.id)}
-                className={`inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${
+                className={`inline-flex min-h-10 min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-3 text-left text-xs font-semibold transition-colors ${
                   isSelected
                     ? 'border-blue-700 bg-blue-700 text-white shadow-xs'
                     : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60 hover:text-blue-800'
@@ -240,7 +240,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 >
                   #{idx + 1}
                 </span>
-                <span className="max-w-[210px] truncate sm:max-w-[260px]">{exam.name}</span>
+                <span className="min-w-0 truncate sm:max-w-[260px]">{exam.name}</span>
                 <span
                   className={`shrink-0 font-mono text-[11px] tabular-nums ${
                     isSelected ? 'text-blue-100' : 'text-slate-500'
@@ -252,11 +252,11 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
             );
           })}
 
-          {sortedExams.length > 1 && (
+          {sortedExams.length > 0 && (
             <button
               type="button"
               onClick={() => setSelectedExamId('ALL')}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+              className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-center text-xs sm:px-3 font-semibold transition-colors ${
                 selectedExamId === 'ALL'
                   ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
@@ -290,14 +290,14 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
             {/* Sort */}
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+            <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-slate-600">
               <span>Sırala:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortKey)}
-                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:border-blue-600 focus:outline-none"
+                className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-800 focus:border-blue-600 focus:outline-none"
               >
                 <option value="lgs_desc">{showAverages ? 'Ortalama LGS Puanı' : 'LGS Puanı'} (Yüksek → Düşük)</option>
                 <option value="net_desc">{showAverages ? 'Ortalama Toplam Net' : 'Toplam Net'} (Yüksek → Düşük)</option>
@@ -308,11 +308,11 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
             </label>
 
             {/* View mode toggle */}
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+            <div className="grid min-h-10 grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-0.5 sm:inline-grid">
               <button
                 type="button"
                 onClick={() => setViewMode('cards')}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                   viewMode === 'cards'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -324,7 +324,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                   viewMode === 'table'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -338,12 +338,12 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
         </div>
 
         {/* Class filter segmented buttons (counts reflect ONLY selected exam's participants) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="grid grid-cols-3 gap-1.5 sm:flex sm:flex-wrap">
             <button
               type="button"
               onClick={() => setSelectedClass('ALL')}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors tabular-nums ${
+              className={`min-h-9 rounded-md px-2.5 text-center text-xs font-medium transition-colors tabular-nums ${
                 selectedClass === 'ALL'
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -358,7 +358,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                   key={cls}
                   type="button"
                   onClick={() => setSelectedClass(cls)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors tabular-nums ${
+                  className={`min-h-9 rounded-md px-2.5 text-center text-xs font-medium transition-colors tabular-nums ${
                     selectedClass === cls
                       ? 'bg-slate-900 text-white'
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
