@@ -127,16 +127,16 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
       case 'avg_net':
         return row.avgToplamNet;
       case 'latest_lgs':
-        return row.latestExam.lgsPuan;
+        return row.latestExam.lgsPuan > 0 ? row.latestExam.lgsPuan : Number.NEGATIVE_INFINITY;
       case 'latest_net':
         return row.latestExam.toplam.net;
       case 'best_lgs':
-        return row.bestLgs;
+        return Number.isFinite(row.bestLgs) ? row.bestLgs : Number.NEGATIVE_INFINITY;
       case 'delta_net':
         return row.netDeltaPrev ?? -9999;
       case 'avg_lgs':
       default:
-        return row.avgLgs;
+        return Number.isFinite(row.avgLgs) ? row.avgLgs : Number.NEGATIVE_INFINITY;
     }
   };
 
@@ -157,7 +157,10 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
       // Strictly divide by the exact number of exams this student attended
       const attendedCount = attendedExams.length;
-      const avgLgs = attendedExams.reduce((sum, exam) => sum + exam.lgsPuan, 0) / attendedCount;
+      const scoredExams = attendedExams.filter((exam) => Number.isFinite(exam.lgsPuan) && exam.lgsPuan > 0);
+      const avgLgs = scoredExams.length
+        ? scoredExams.reduce((sum, exam) => sum + exam.lgsPuan, 0) / scoredExams.length
+        : Number.NaN;
       const avgToplamNet = attendedExams.reduce((sum, exam) => sum + exam.toplam.net, 0) / attendedCount;
 
       const avgSubjectNets = {} as Record<SubjectKey, number>;
@@ -175,7 +178,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         }
       }
 
-      const bestLgs = Math.max(...attendedExams.map((ex) => ex.lgsPuan));
+      const bestLgs = scoredExams.length ? Math.max(...scoredExams.map((ex) => ex.lgsPuan)) : Number.NaN;
 
       raw.push({
         student,
@@ -235,7 +238,10 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
   const footerAverages = useMemo(() => {
     if (filteredRows.length === 0) return null;
     const count = filteredRows.length;
-    const avgLgs = round2(filteredRows.reduce((acc, r) => acc + r.avgLgs, 0) / count);
+    const scoredRows = filteredRows.filter((r) => Number.isFinite(r.avgLgs));
+    const avgLgs = scoredRows.length
+      ? round2(scoredRows.reduce((acc, r) => acc + r.avgLgs, 0) / scoredRows.length)
+      : Number.NaN;
     const avgToplamNet = round2(
       filteredRows.reduce((acc, r) => acc + r.avgToplamNet, 0) / count
     );
@@ -275,9 +281,12 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
           avgNet: round2(
             participants.reduce((acc, rec) => acc + rec.toplam.net, 0) / participants.length
           ),
-          avgLgs: round2(
-            participants.reduce((acc, rec) => acc + rec.lgsPuan, 0) / participants.length
-          ),
+          avgLgs: (() => {
+            const scored = participants.filter((rec) => Number.isFinite(rec.lgsPuan) && rec.lgsPuan > 0);
+            return scored.length
+              ? round2(scored.reduce((acc, rec) => acc + rec.lgsPuan, 0) / scored.length)
+              : Number.NaN;
+          })(),
           subjectNets,
         });
       }
@@ -1095,7 +1104,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                                         {rec ? formatTrNumber(rec.toplam.net, 2) : '—'}
                                       </td>
                                       <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 tabular-nums">
-                                        {rec ? formatTrNumber(rec.lgsPuan, 2) : '—'}
+                                        {rec && rec.lgsPuan > 0 ? formatTrNumber(rec.lgsPuan, 2) : '—'}
                                       </td>
                                     </tr>
                                   );
@@ -1364,7 +1373,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                             {rec ? formatTrNumber(rec.toplam.net, 2) : '—'}
                           </td>
                           <td className="border-r border-slate-300 bg-slate-50/70 px-2.5 py-2 text-right font-mono text-[11px] font-bold text-slate-900 tabular-nums">
-                            {rec ? formatTrNumber(rec.lgsPuan, 2) : '—'}
+                            {rec && rec.lgsPuan > 0 ? formatTrNumber(rec.lgsPuan, 2) : '—'}
                           </td>
                         </React.Fragment>
                       );
