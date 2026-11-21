@@ -47,12 +47,21 @@ export interface StudentProgressSummary {
   strongestSubject: SubjectKey;
 }
 
-export function getStudentProgressSummary(student: StudentProfile): StudentProgressSummary | null {
+export function getStudentSummaryForExam(
+  student: StudentProfile,
+  examId?: string
+): StudentProgressSummary | null {
   const sorted = getSortedExams(student);
   if (sorted.length === 0) return null;
 
-  const latest = sorted[sorted.length - 1];
-  const previous = sorted.length >= 2 ? sorted[sorted.length - 2] : undefined;
+  let targetIdx = sorted.length - 1;
+  if (examId && examId !== 'ALL') {
+    targetIdx = sorted.findIndex((e) => e.examId === examId);
+    if (targetIdx === -1) return null;
+  }
+
+  const latest = sorted[targetIdx];
+  const previous = targetIdx >= 1 ? sorted[targetIdx - 1] : undefined;
   const first = sorted[0];
 
   const subjectNetDeltas: Partial<Record<SubjectKey, number>> = {};
@@ -98,11 +107,9 @@ export function getStudentProgressSummary(student: StudentProfile): StudentProgr
       ? Math.round((latest.toplam.net - previous.toplam.net) * 100) / 100
       : undefined,
     lgsDeltaFirst:
-      sorted.length >= 2 ? Math.round((latest.lgsPuan - first.lgsPuan) * 1000) / 1000 : undefined,
+      targetIdx >= 1 ? Math.round((latest.lgsPuan - first.lgsPuan) * 1000) / 1000 : undefined,
     netDeltaFirst:
-      sorted.length >= 2
-        ? Math.round((latest.toplam.net - first.toplam.net) * 100) / 100
-        : undefined,
+      targetIdx >= 1 ? Math.round((latest.toplam.net - first.toplam.net) * 100) / 100 : undefined,
     bestLgs,
     avgLgs,
     avgNet,
@@ -110,6 +117,10 @@ export function getStudentProgressSummary(student: StudentProfile): StudentProgr
     weakestSubject,
     strongestSubject,
   };
+}
+
+export function getStudentProgressSummary(student: StudentProfile): StudentProgressSummary | null {
+  return getStudentSummaryForExam(student, 'ALL');
 }
 
 export function buildStudentSubjectDiagnostics(student: StudentProfile): SubjectDiagnostic[] {
@@ -437,7 +448,8 @@ export interface SchoolKazanimWeakness {
 
 export function buildSchoolKazanimWeaknesses(
   state: ExamArchiveState,
-  classFilter = 'ALL'
+  classFilter = 'ALL',
+  examId?: string
 ): SchoolKazanimWeakness[] {
   const map = new Map<
     string,
@@ -447,10 +459,13 @@ export function buildSchoolKazanimWeaknesses(
   for (const student of state.students) {
     if (classFilter !== 'ALL' && student.sinif !== classFilter) continue;
     const sorted = getSortedExams(student);
-    const latest = sorted[sorted.length - 1];
-    if (!latest) continue;
+    const target =
+      examId && examId !== 'ALL'
+        ? sorted.find((e) => e.examId === examId)
+        : sorted[sorted.length - 1];
+    if (!target) continue;
 
-    for (const k of latest.kazanimlar) {
+    for (const k of target.kazanimlar) {
       const key = `${k.subject}__${k.text.toLowerCase().trim()}`;
       const entry = map.get(key) ?? {
         subject: k.subject,

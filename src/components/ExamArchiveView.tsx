@@ -10,13 +10,22 @@ import {
   RefreshCw,
   FileText,
   FileSpreadsheet,
+  Cloud,
+  CloudCheck,
+  CloudUpload,
+  CloudDownload,
+  LogOut,
+  Loader2,
 } from 'lucide-react';
 import { ExamArchiveState } from '../types/exam';
 import { formatTrNumber } from '../utils/analytics';
 import { downloadExcelTemplate, exportSchoolArchiveToExcel } from '../utils/excelHandler';
+import { UseCloudBackupResult } from '../hooks/useCloudBackup';
+import { formatBackupTime } from './CloudBackupControl';
 
 interface ExamArchiveViewProps {
   state: ExamArchiveState;
+  cloud: UseCloudBackupResult;
   onOpenUpload: () => void;
   onDeleteExam: (examId: string) => void;
   onRenameExam: (examId: string, newName: string) => void;
@@ -27,6 +36,7 @@ interface ExamArchiveViewProps {
 
 export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
   state,
+  cloud,
   onOpenUpload,
   onDeleteExam,
   onRenameExam,
@@ -138,6 +148,96 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
           {importError}
         </div>
       )}
+
+      {/* Cloud Backup & Exit Sync Panel */}
+      <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3">
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                cloud.user ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+              }`}
+            >
+              {cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating' ? (
+                <Loader2 className="h-5 w-5 animate-spin text-blue-700" />
+              ) : cloud.user ? (
+                <CloudCheck className="h-5 w-5" />
+              ) : (
+                <Cloud className="h-5 w-5" />
+              )}
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">
+                Bulut Yedekleme &amp; Çıkışta Otomatik Senkronizasyon
+              </h2>
+              {cloud.user ? (
+                <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
+                  {cloud.user.displayName || cloud.user.email} · Son yedek:{' '}
+                  <strong className="font-semibold text-slate-800">
+                    {formatBackupTime(cloud.lastBackupAt)}
+                  </strong>{' '}
+                  · Tüm denemeler, öğrenci kartları ve sonuçlar her değişiklikte ve programdan çıkışta otomatik buluta yedeklenir.
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Google hesabınızla bağlanarak tüm deneme arşivini, öğrenci sonuçlarını ve kazanım verilerini buluta otomatik yedekleyin; her programdan çıkışta verileriniz güvenle senkronize edilsin.
+                </p>
+              )}
+              {cloud.errorMessage && (
+                <p className="mt-1.5 text-xs font-medium text-red-700">{cloud.errorMessage}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {cloud.user ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void cloud.backupNow(false)}
+                  disabled={cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
+                >
+                  <CloudUpload className="h-3.5 w-3.5" />
+                  Şimdi Yedekle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void cloud.restoreFromCloud()}
+                  disabled={cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <CloudDownload className="h-3.5 w-3.5" />
+                  Buluttan Yükle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void cloud.backupAndSignOut()}
+                  disabled={cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Yedekle &amp; Çıkış
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void cloud.signInWithGoogle()}
+                disabled={cloud.isSigningIn}
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
+              >
+                {cloud.isSigningIn ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Cloud className="h-3.5 w-3.5" />
+                )}
+                Google ile Buluta Bağlan
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* Exams Table */}
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white">

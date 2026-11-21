@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
 import { ExamArchiveState, SUBJECT_LIST, SUBJECT_MAP, SubjectKey } from '../types/exam';
 import {
   buildSchoolKazanimWeaknesses,
   formatTrNumber,
-  getStudentProgressSummary,
+  getStudentSummaryForExam,
 } from '../utils/analytics';
 
 interface SchoolWeaknessViewProps {
@@ -16,8 +16,25 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
   state,
   onSelectStudent,
 }) => {
+  const sortedExams = useMemo(
+    () => [...state.exams].sort((a, b) => a.examOrder - b.examOrder),
+    [state.exams]
+  );
+
+  const [selectedExamId, setSelectedExamId] = useState<string>(() => {
+    const ordered = [...state.exams].sort((a, b) => a.examOrder - b.examOrder);
+    return ordered.length > 0 ? ordered[ordered.length - 1].id : 'ALL';
+  });
   const [selectedClass, setSelectedClass] = useState('ALL');
   const [selectedSubject, setSelectedSubject] = useState<SubjectKey | 'ALL'>('ALL');
+
+  useEffect(() => {
+    if (sortedExams.length === 0) {
+      setSelectedExamId('ALL');
+    } else if (selectedExamId !== 'ALL' && !sortedExams.some((e) => e.id === selectedExamId)) {
+      setSelectedExamId(sortedExams[sortedExams.length - 1].id);
+    }
+  }, [sortedExams, selectedExamId]);
 
   const classes = useMemo(() => {
     const set = new Set(state.students.map((s) => s.sinif));
@@ -25,18 +42,18 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
   }, [state.students]);
 
   const kazanimWeaknesses = useMemo(() => {
-    const all = buildSchoolKazanimWeaknesses(state, selectedClass);
+    const all = buildSchoolKazanimWeaknesses(state, selectedClass, selectedExamId);
     return selectedSubject === 'ALL'
       ? all
       : all.filter((k) => k.subject === selectedSubject);
-  }, [state, selectedClass, selectedSubject]);
+  }, [state, selectedClass, selectedSubject, selectedExamId]);
 
   const subjectUrgentStudents = useMemo(() => {
     const focusSubject: SubjectKey = selectedSubject === 'ALL' ? 'matematik' : selectedSubject;
     return state.students
       .filter((s) => selectedClass === 'ALL' || s.sinif === selectedClass)
       .map((student) => {
-        const summary = getStudentProgressSummary(student);
+        const summary = getStudentSummaryForExam(student, selectedExamId);
         if (!summary) return null;
         const sc = summary.latest.subjects[focusSubject];
         return { student, score: sc, lgs: summary.latest.lgsPuan };
@@ -47,7 +64,7 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
       )
       .sort((a, b) => a.score.net - b.score.net)
       .slice(0, 15);
-  }, [state.students, selectedClass, selectedSubject]);
+  }, [state.students, selectedClass, selectedSubject, selectedExamId]);
 
   const activeFocusSubject: SubjectKey = selectedSubject === 'ALL' ? 'matematik' : selectedSubject;
 
@@ -58,11 +75,26 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">Okul Geneli Eksik ve Kazanım Analizi</h1>
           <p className="text-xs text-slate-500">
-            Şube veya ders bazında en düşük başarıya sahip kazanımları ve öncelikli destek gerektiren öğrencileri tespit edin.
+            Deneme, şube veya ders bazında en düşük başarıya sahip kazanımları ve öncelikli destek gerektiren öğrencileri tespit edin.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {sortedExams.length > 0 && (
+            <select
+              value={selectedExamId}
+              onChange={(e) => setSelectedExamId(e.target.value)}
+              className="max-w-[220px] rounded-lg border border-blue-300 bg-blue-50/50 px-3 py-1.5 text-xs font-semibold text-blue-900 focus:border-blue-600 focus:outline-none"
+            >
+              {sortedExams.map((ex, idx) => (
+                <option key={ex.id} value={ex.id}>
+                  #{idx + 1} {ex.name}
+                </option>
+              ))}
+              {sortedExams.length > 1 && <option value="ALL">Tüm Denemeler (Son Sonuç)</option>}
+            </select>
+          )}
+
           <select
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}

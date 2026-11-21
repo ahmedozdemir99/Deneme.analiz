@@ -1,0 +1,256 @@
+{
+  "entities": {
+    "UserArchiveMeta": {
+      "title": "UserArchiveMeta",
+      "description": "Metadata and backup summary for a user's personal LGS exam cloud archive.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID owning this archive.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the teacher/user.",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "examCount": {
+          "type": "number",
+          "description": "Total number of exams backed up in this archive."
+        },
+        "studentCount": {
+          "type": "number",
+          "description": "Total number of students backed up in this archive."
+        },
+        "lastBackupAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest completed cloud backup."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the cloud archive was first created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the cloud archive metadata was last updated."
+        }
+      },
+      "required": [
+        "ownerId",
+        "displayName",
+        "examCount",
+        "studentCount",
+        "lastBackupAt",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExamDocument": {
+      "title": "ExamDocument",
+      "description": "Metadata and school-wide averages for a single LGS mock exam.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique sanitized exam identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID owning this exam.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Exam title displayed across the application.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Original imported PDF or Excel file name.",
+          "minLength": 1,
+          "maxLength": 260
+        },
+        "schoolName": {
+          "type": "string",
+          "description": "School name extracted from the exam report.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "location": {
+          "type": "string",
+          "description": "City/district location extracted from the exam report.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "examDate": {
+          "type": "string",
+          "description": "Exam date string (YYYY-MM-DD).",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "uploadedAt": {
+          "type": "string",
+          "description": "ISO timestamp when the exam was imported.",
+          "minLength": 0,
+          "maxLength": 64
+        },
+        "examOrder": {
+          "type": "number",
+          "description": "Chronological ordering index of the exam."
+        },
+        "studentCount": {
+          "type": "number",
+          "description": "Number of students who participated in this exam."
+        },
+        "isSample": {
+          "type": "boolean",
+          "description": "Whether this exam originated from the bundled sample PDF."
+        },
+        "schoolAvgLgs": {
+          "type": "number",
+          "description": "School average LGS score."
+        },
+        "generalAvgLgs": {
+          "type": "number",
+          "description": "General average LGS score."
+        },
+        "schoolAvgToplamNet": {
+          "type": "number",
+          "description": "School average total net score."
+        },
+        "generalAvgToplamNet": {
+          "type": "number",
+          "description": "General average total net score."
+        },
+        "schoolSubjectNets": {
+          "type": "object",
+          "description": "Native map of school average net scores per LGS subject."
+        },
+        "generalSubjectNets": {
+          "type": "object",
+          "description": "Native map of general average net scores per LGS subject."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "name",
+        "fileName",
+        "schoolName",
+        "location",
+        "examDate",
+        "uploadedAt",
+        "examOrder",
+        "studentCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StudentDocument": {
+      "title": "StudentDocument",
+      "description": "Student profile with full native array of row-by-row LGS exam records.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique sanitized student identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID owning this student record.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "numara": {
+          "type": "string",
+          "description": "Student school number.",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string",
+          "description": "Student full name.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "sinif": {
+          "type": "string",
+          "description": "Normalized class/section name (e.g. 8-B).",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "exams": {
+          "type": "array",
+          "description": "Native list of StudentExamRecord objects (max 100 exams per student)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "numara",
+        "name",
+        "sinif",
+        "exams",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserArchiveMeta"
+      },
+      "description": "Root document for each user's cloud-backed LGS exam archive metadata."
+    },
+    "/users/{userId}/exams/{examId}": {
+      "schema": {
+        "$ref": "#/entities/ExamDocument"
+      },
+      "description": "Subcollection storing metadata and school averages for each imported exam."
+    },
+    "/users/{userId}/students/{studentId}": {
+      "schema": {
+        "$ref": "#/entities/StudentDocument"
+      },
+      "description": "Subcollection storing each student's profile and row-by-row exam results."
+    }
+  }
+}

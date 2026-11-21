@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   ArrowUpRight,
@@ -8,16 +8,18 @@ import {
   LayoutGrid,
   Table as TableIcon,
   FileUp,
+  Layers,
 } from 'lucide-react';
-import { SUBJECT_LIST, SUBJECT_MAP, StudentProfile } from '../types/exam';
+import { ExamMeta, SUBJECT_LIST, SUBJECT_MAP, StudentProfile } from '../types/exam';
 import {
   formatTrDelta,
   formatTrNumber,
-  getStudentProgressSummary,
+  getStudentSummaryForExam,
   StudentProgressSummary,
 } from '../utils/analytics';
 
 interface StudentCardsViewProps {
+  exams: ExamMeta[];
   students: StudentProfile[];
   onSelectStudent: (studentId: string) => void;
   onOpenUpload: () => void;
@@ -26,28 +28,95 @@ interface StudentCardsViewProps {
 type SortKey = 'lgs_desc' | 'net_desc' | 'delta_desc' | 'name_asc' | 'rank_asc';
 
 export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
+  exams,
   students,
   onSelectStudent,
   onOpenUpload,
 }) => {
+  const sortedExams = useMemo(
+    () => [...exams].sort((a, b) => a.examOrder - b.examOrder),
+    [exams]
+  );
+
+  const [selectedExamId, setSelectedExamId] = useState<string>(() => {
+    const ordered = [...exams].sort((a, b) => a.examOrder - b.examOrder);
+    return ordered.length > 0 ? ordered[ordered.length - 1].id : 'ALL';
+  });
+  const prevExamCountRef = useRef<number>(sortedExams.length);
+
+  // Auto-select newly added exam or fall back if selected exam was deleted
+  useEffect(() => {
+    if (sortedExams.length === 0) {
+      setSelectedExamId('ALL');
+      prevExamCountRef.current = 0;
+      return;
+    }
+    const latestId = sortedExams[sortedExams.length - 1].id;
+    const grew = sortedExams.length > prevExamCountRef.current;
+    prevExamCountRef.current = sortedExams.length;
+
+    if (grew) {
+      setSelectedExamId(latestId);
+      return;
+    }
+    if (selectedExamId !== 'ALL' && !sortedExams.some((e) => e.id === selectedExamId)) {
+      setSelectedExamId(latestId);
+    }
+  }, [sortedExams, selectedExamId]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClass, setSelectedClass] = useState('ALL');
   const [sortBy, setSortBy] = useState<SortKey>('lgs_desc');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
-  const classes = useMemo(() => {
-    const set = new Set(students.map((s) => s.sinif));
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+  const activeExamMeta = useMemo(
+    () => (selectedExamId === 'ALL' ? null : sortedExams.find((e) => e.id === selectedExamId) ?? null),
+    [sortedExams, selectedExamId]
+  );
+
+  const examParticipantCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of students) {
+      for (const ex of s.exams) {
+        counts.set(ex.examId, (counts.get(ex.examId) ?? 0) + 1);
+      }
+    }
+    return counts;
   }, [students]);
 
   const enriched = useMemo(() => {
     const list: Array<{ student: StudentProfile; summary: StudentProgressSummary }> = [];
     for (const student of students) {
-      const summary = getStudentProgressSummary(student);
+      const summary = getStudentSummaryForExam(student, selectedExamId);
       if (summary) list.push({ student, summary });
     }
     return list;
-  }, [students]);
+  }, [students, selectedExamId]);
+
+  const classes = useMemo(() => {
+    const set = new Set(enriched.map((item) => item.student.sinif));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'tr'));
+  }, [enriched]);
+
+  // Reset class filter if selected class has no participants in the newly selected exam
+  useEffect(() => {
+    if (selectedClass !== 'ALL' && !classes.includes(selectedClass)) {
+      setSelectedClass('ALL');
+    }
+  }, [classes, selectedClass]);
+
+  const examStats = useMemo(() => {
+    if (enriched.length === 0) return null;
+    const avgLgs =
+      Math.round(
+        (enriched.reduce((sum, e) => sum + e.summary.latest.lgsPuan, 0) / enriched.length) * 100
+      ) / 100;
+    const avgNet =
+      Math.round(
+        (enriched.reduce((sum, e) => sum + e.summary.latest.toplam.net, 0) / enriched.length) * 100
+      ) / 100;
+    return { avgLgs, avgNet, count: enriched.length };
+  }, [enriched]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLocaleLowerCase('tr');
@@ -89,7 +158,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
         </div>
         <h2 className="text-lg font-bold text-slate-900">Henüz deneme PDF&apos;i yüklenmedi</h2>
         <p className="mx-auto mt-1.5 max-w-md text-sm text-slate-500">
-          Toplu deneme sonuç PDF dosyanızı yüklediğinizde tüm öğrenciler için otomatik kartlar, satır satır deneme arşivi ve kazanım eksikleri analizi oluşturulur.
+          Toplu deneme sonuç PDF veya Excel dosyanızı yüklediğinizde tüm öğrenciler için otomatik kartlar, satır satır deneme arşivi ve kazanım eksikleri analizi oluşturulur.
         </p>
         <button
           type="button"
@@ -97,14 +166,103 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
           className="mt-5 inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800"
         >
           <FileUp className="h-4 w-4" />
-          İlk Deneme PDF&apos;ini Yükle
+          İlk Deneme Dosyasını Yükle
         </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
+      {/* Top Exam Selector Bar — strictly separates each exam's cards and results */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-blue-700" />
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-700">
+              Deneme Seçimi
+            </span>
+          </div>
+          {examStats && (
+            <div className="font-mono text-xs text-slate-500 tabular-nums">
+              {activeExamMeta ? (
+                <>
+                  {activeExamMeta.examDate ? `${activeExamMeta.examDate} · ` : ''}
+                  {examStats.count} öğrenci · Ort. LGS{' '}
+                  <strong className="font-semibold text-slate-900">
+                    {formatTrNumber(examStats.avgLgs, 2)}
+                  </strong>{' '}
+                  · Ort. Net{' '}
+                  <strong className="font-semibold text-blue-700">
+                    {formatTrNumber(examStats.avgNet, 2)}
+                  </strong>
+                </>
+              ) : (
+                <>
+                  Tüm Arşiv (Son Sonuç) · {examStats.count} öğrenci · {sortedExams.length} deneme
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {sortedExams.map((exam, idx) => {
+            const isSelected = selectedExamId === exam.id;
+            const participantCount = examParticipantCounts.get(exam.id) ?? exam.studentCount;
+            return (
+              <button
+                key={exam.id}
+                type="button"
+                onClick={() => setSelectedExamId(exam.id)}
+                className={`inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-semibold transition-colors ${
+                  isSelected
+                    ? 'border-blue-700 bg-blue-700 text-white shadow-xs'
+                    : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60 hover:text-blue-800'
+                }`}
+              >
+                <span
+                  className={`font-mono text-[11px] font-bold tabular-nums ${
+                    isSelected ? 'text-blue-100' : 'text-slate-400'
+                  }`}
+                >
+                  #{idx + 1}
+                </span>
+                <span className="max-w-[210px] truncate sm:max-w-[260px]">{exam.name}</span>
+                <span
+                  className={`shrink-0 font-mono text-[11px] tabular-nums ${
+                    isSelected ? 'text-blue-100' : 'text-slate-500'
+                  }`}
+                >
+                  ({participantCount})
+                </span>
+              </button>
+            );
+          })}
+
+          {sortedExams.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setSelectedExamId('ALL')}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                selectedExamId === 'ALL'
+                  ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <span>Tümü (Son Sonuç)</span>
+              <span
+                className={`font-mono text-[11px] tabular-nums ${
+                  selectedExamId === 'ALL' ? 'text-slate-300' : 'text-slate-400'
+                }`}
+              >
+                ({students.length})
+              </span>
+            </button>
+          )}
+        </div>
+      </section>
+
       {/* Filter & Controls Toolbar */}
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -132,7 +290,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 <option value="lgs_desc">LGS Puanı (Yüksek → Düşük)</option>
                 <option value="net_desc">Toplam Net (Yüksek → Düşük)</option>
                 <option value="rank_asc">Okul Sırası (1 → Son)</option>
-                <option value="delta_desc">Son Deneme Gelişimi (Δ Net)</option>
+                <option value="delta_desc">Önceki Denemeye Göre Gelişim (Δ Net)</option>
                 <option value="name_asc">İsim (A → Z)</option>
               </select>
             </label>
@@ -167,22 +325,22 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
           </div>
         </div>
 
-        {/* Class filter segmented buttons */}
+        {/* Class filter segmented buttons (counts reflect ONLY selected exam's participants) */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setSelectedClass('ALL')}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors tabular-nums ${
                 selectedClass === 'ALL'
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              Tümü ({students.length})
+              Tümü ({enriched.length})
             </button>
             {classes.map((cls) => {
-              const count = students.filter((s) => s.sinif === cls).length;
+              const count = enriched.filter((item) => item.student.sinif === cls).length;
               return (
                 <button
                   key={cls}
@@ -208,7 +366,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
       {/* Empty Search Result */}
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-          Arama kriterlerine uygun öğrenci bulunamadı.
+          Seçili denemede arama kriterlerine uygun öğrenci bulunamadı.
         </div>
       ) : viewMode === 'cards' ? (
         /* Student Cards Grid */

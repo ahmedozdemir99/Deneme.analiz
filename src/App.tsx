@@ -27,6 +27,8 @@ import { ExamArchiveView } from './components/ExamArchiveView';
 import { SchoolWeaknessView } from './components/SchoolWeaknessView';
 import { UploadModal } from './components/UploadModal';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
+import { CloudBackupControl } from './components/CloudBackupControl';
+import { useCloudBackup } from './hooks/useCloudBackup';
 
 type NavTab = 'students' | 'overview' | 'archive' | 'weaknesses';
 
@@ -56,6 +58,8 @@ export default function App() {
       setBannerMessage({ type: 'error', text: saved.error });
     }
   }, []);
+
+  const cloud = useCloudBackup(archive, persistAndSet, setBannerMessage);
 
   const loadBundledSamplePdf = useCallback(async () => {
     setIsLoadingSample(true);
@@ -253,8 +257,13 @@ export default function App() {
             })}
           </nav>
 
-          {/* Zone 3: Actions (PWA Install + Primary Upload CTA) */}
+          {/* Zone 3: Actions (Cloud Backup + PWA Install + Primary Upload CTA) */}
           <div className="flex shrink-0 items-center gap-2">
+            <CloudBackupControl
+              cloud={cloud}
+              examCount={archive.exams.length}
+              studentCount={archive.students.length}
+            />
             <PWAInstallButton />
             <button
               type="button"
@@ -262,7 +271,8 @@ export default function App() {
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
             >
               <FileUp className="h-4 w-4" />
-              PDF / Excel Yükle
+              <span className="hidden sm:inline">PDF / Excel Yükle</span>
+              <span className="sm:hidden">Yükle</span>
             </button>
           </div>
         </div>
@@ -356,16 +366,17 @@ export default function App() {
             onOpenUpload={() => setIsUploadOpen(true)}
           />
         ) : activeTab === 'students' ? (
-          <div className="space-y-5">
+          <div className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <h1 className="text-xl font-extrabold text-slate-900">Öğrenci Kartları</h1>
                 <p className="text-xs text-slate-500 tabular-nums">
-                  {archive.students.length} öğrenci · {archive.exams.length} deneme arşivi · Kartlara tıklayarak satır satır deneme tablosu, grafikler ve eksik kazanımları inceleyin.
+                  Üstten deneme seçerek her sınavın öğrenci kartlarını ayrı ayrı görüntüleyin; kartlara tıklayarak satır satır arşiv ve kazanım analizine ulaşın.
                 </p>
               </div>
             </div>
             <StudentCardsView
+              exams={archive.exams}
               students={archive.students}
               onSelectStudent={handleSelectStudent}
               onOpenUpload={() => setIsUploadOpen(true)}
@@ -380,6 +391,7 @@ export default function App() {
         ) : activeTab === 'archive' ? (
           <ExamArchiveView
             state={archive}
+            cloud={cloud}
             onOpenUpload={() => setIsUploadOpen(true)}
             onDeleteExam={handleDeleteExam}
             onRenameExam={handleRenameExam}

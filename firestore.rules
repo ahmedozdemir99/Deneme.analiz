@@ -1,0 +1,340 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny all unmatched paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOptionalNumber(data, field, minVal, maxVal) {
+      return !(field in data) || (
+        (data[field] is int || data[field] is float) &&
+        data[field] >= minVal &&
+        data[field] <= maxVal
+      );
+    }
+
+    function isOptionalBool(data, field) {
+      return !(field in data) || data[field] is bool;
+    }
+
+    function isOptionalSubjectNetMap(data, field) {
+      return !(field in data) || (
+        data[field] is map &&
+        data[field].keys().hasOnly(['turkce', 'tarih', 'din', 'ingilizce', 'matematik', 'fen'])
+      );
+    }
+
+    // Master Gate: Parent user archive must exist and belong to the authenticated owner
+    function parentArchiveOwnedBy(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+        get(/databases/$(database)/documents/users/$(userId)).data.ownerId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // Validation Blueprints (Anti-Update-Gap Helpers)
+    // =========================================================================
+
+    function isValidUserArchive(data, userId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'displayName',
+          'examCount',
+          'studentCount',
+          'lastBackupAt',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'displayName',
+          'examCount',
+          'studentCount',
+          'lastBackupAt',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.displayName is string && data.displayName.size() <= 120 &&
+        data.examCount is int && data.examCount >= 0 && data.examCount <= 500 &&
+        data.studentCount is int && data.studentCount >= 0 && data.studentCount <= 5000 &&
+        data.lastBackupAt is timestamp &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidExamDoc(data, userId, examId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'name',
+          'fileName',
+          'schoolName',
+          'location',
+          'examDate',
+          'uploadedAt',
+          'examOrder',
+          'studentCount',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'name',
+          'fileName',
+          'schoolName',
+          'location',
+          'examDate',
+          'uploadedAt',
+          'examOrder',
+          'studentCount',
+          'isSample',
+          'schoolAvgLgs',
+          'generalAvgLgs',
+          'schoolAvgToplamNet',
+          'generalAvgToplamNet',
+          'schoolSubjectNets',
+          'generalSubjectNets',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == examId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 260 &&
+        data.schoolName is string && data.schoolName.size() <= 200 &&
+        data.location is string && data.location.size() <= 200 &&
+        data.examDate is string && data.examDate.size() <= 40 &&
+        data.uploadedAt is string && data.uploadedAt.size() <= 64 &&
+        (data.examOrder is int || data.examOrder is float) && data.examOrder >= 0 && data.examOrder <= 10000 &&
+        data.studentCount is int && data.studentCount >= 0 && data.studentCount <= 5000 &&
+        isOptionalBool(data, 'isSample') &&
+        isOptionalNumber(data, 'schoolAvgLgs', 0, 600) &&
+        isOptionalNumber(data, 'generalAvgLgs', 0, 600) &&
+        isOptionalNumber(data, 'schoolAvgToplamNet', -30, 90) &&
+        isOptionalNumber(data, 'generalAvgToplamNet', -30, 90) &&
+        isOptionalSubjectNetMap(data, 'schoolSubjectNets') &&
+        isOptionalSubjectNetMap(data, 'generalSubjectNets') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStudentDoc(data, userId, studentId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'numara',
+          'name',
+          'sinif',
+          'exams',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'numara',
+          'name',
+          'sinif',
+          'exams',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.id == studentId &&
+        isValidId(data.ownerId) &&
+        data.ownerId == userId &&
+        data.ownerId == request.auth.uid &&
+        data.numara is string && data.numara.size() <= 40 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+        data.sinif is string && data.sinif.size() >= 1 && data.sinif.size() <= 40 &&
+        data.exams is list &&
+        data.exams.size() <= 100 &&
+        (
+          data.exams.size() == 0 ||
+          (
+            data.exams[0] is map &&
+            data.exams[0].keys().hasAll(['examId', 'examName', 'examOrder', 'lgsPuan', 'subjects', 'toplam']) &&
+            data.exams[0].examId is string && data.exams[0].examId.size() >= 1 && data.exams[0].examId.size() <= 128 &&
+            data.exams[0].examName is string && data.exams[0].examName.size() >= 1 && data.exams[0].examName.size() <= 200
+          )
+        ) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection Rules
+    // =========================================================================
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserArchive(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        incoming().lastBackupAt == request.time;
+
+      allow update: if isVerifiedOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserArchive(incoming(), userId) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().lastBackupAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'examCount',
+          'studentCount',
+          'lastBackupAt',
+          'updatedAt'
+        ]);
+
+      allow delete: if isVerifiedOwner(userId) && isValidId(userId);
+
+      // Subcollection: Imported LGS Exams
+      match /exams/{examId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(examId) &&
+          parentArchiveOwnedBy(userId);
+
+        allow list: if isOwner(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(examId) &&
+          isValidExamDoc(incoming(), userId, examId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          parentArchiveOwnedBy(userId);
+
+        allow update: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(examId) &&
+          isValidExamDoc(incoming(), userId, examId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action: Rename Exam
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) ||
+            // Action: Full Exam Sync Update
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'fileName',
+              'schoolName',
+              'location',
+              'examDate',
+              'uploadedAt',
+              'examOrder',
+              'studentCount',
+              'isSample',
+              'schoolAvgLgs',
+              'generalAvgLgs',
+              'schoolAvgToplamNet',
+              'generalAvgToplamNet',
+              'schoolSubjectNets',
+              'generalSubjectNets',
+              'updatedAt'
+            ])
+          ) &&
+          parentArchiveOwnedBy(userId);
+
+        allow delete: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(examId) &&
+          parentArchiveOwnedBy(userId);
+      }
+
+      // Subcollection: Student Profiles & Row-by-Row Exam Results
+      match /students/{studentId} {
+        allow get: if isOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(studentId) &&
+          parentArchiveOwnedBy(userId);
+
+        allow list: if isOwner(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(studentId) &&
+          isValidStudentDoc(incoming(), userId, studentId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          parentArchiveOwnedBy(userId);
+
+        allow update: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(studentId) &&
+          isValidStudentDoc(incoming(), userId, studentId) &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action: Sync Student Profile & Exam Results
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'numara',
+              'name',
+              'sinif',
+              'exams',
+              'updatedAt'
+            ])
+          ) &&
+          parentArchiveOwnedBy(userId);
+
+        allow delete: if isVerifiedOwner(userId) &&
+          isValidId(userId) &&
+          isValidId(studentId) &&
+          parentArchiveOwnedBy(userId);
+      }
+    }
+  }
+}
