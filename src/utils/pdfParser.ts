@@ -1510,8 +1510,17 @@ export async function parseExamPdf(
   }
 
   // Strictly deduplicate students within the same PDF (handles multi-page reports or repeated sections)
+  // Also skip absent / "Girmedi" rows with 0 score, 0 D, 0 Y, and 0 net so they never dilute averages
   const dedupedRecordsMap = new Map<string, ParsedExamBundle['records'][number]>();
   for (const item of records) {
+    if (
+      item.record.lgsPuan <= 0 &&
+      item.record.toplam.dogru === 0 &&
+      item.record.toplam.yanlis === 0 &&
+      item.record.toplam.net === 0
+    ) {
+      continue;
+    }
     const nameSig = normalizeTurkish(item.name).replace(/\s+/g, '');
     const cleanNo = (item.numara || '').replace(/\D/g, '').replace(/^0+/, '');
     const dedupKey = nameSig.length >= 4 ? `N_${nameSig}` : cleanNo ? `NO_${cleanNo}` : item.studentKey;

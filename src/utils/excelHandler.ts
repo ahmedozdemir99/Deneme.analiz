@@ -510,6 +510,11 @@ export async function parseExamExcel(
       kazanimlar: [],
     };
 
+    // Skip absent / "Girmedi" rows that have 0 score, 0 correct, 0 wrong, and 0 net
+    if (lgsPuan <= 0 && toplam.dogru === 0 && toplam.yanlis === 0 && toplam.net === 0) {
+      continue;
+    }
+
     records.push({
       studentKey: buildStudentKey(numara, name, sinif),
       numara,
@@ -818,13 +823,14 @@ export function exportLeaderboardToExcel(
 ): void {
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Genel Sıralama ve Ortalamalar
+  // Sheet 1: Genel Sıralama ve Ortalamalar (Ortalamalar her öğrencinin yalnızca girdiği deneme sayısına bölünür)
   const summaryHeaders = [
     'Sıra',
     'Adı Soyadı',
     'Şube',
     'Öğrenci No',
-    'Katıldığı Deneme',
+    'Girdiği Deneme',
+    'Ortalama Böleni',
     'Ortalama LGS',
     'Ortalama Toplam Net',
     ...SUBJECT_LIST.map((s) => `Ort. ${s.label} Net`),
@@ -840,12 +846,13 @@ export function exportLeaderboardToExcel(
     row.student.sinif,
     row.student.numara,
     `${row.attendedCount}/${sortedExams.length}`,
+    row.attendedCount,
     row.avgLgs,
     row.avgToplamNet,
     ...SUBJECT_LIST.map((s) => row.avgSubjectNets[s.key]),
     ...sortedExams.flatMap<string | number>((ex) => {
       const rec = row.examMap.get(ex.id);
-      return rec ? [rec.toplam.net, rec.lgsPuan] : ['', ''];
+      return rec ? [rec.toplam.net, rec.lgsPuan] : ['Girmedi', 'Girmedi'];
     }),
   ]);
 
@@ -857,6 +864,7 @@ export function exportLeaderboardToExcel(
     'Sıra',
     'Adı Soyadı',
     'Şube',
+    'Girdiği Deneme',
     ...SUBJECT_LIST.map((s) => `Ort. ${s.shortLabel}`),
     'Ort. Net',
     'Ort. LGS',
@@ -871,12 +879,13 @@ export function exportLeaderboardToExcel(
     idx + 1,
     row.student.name,
     row.student.sinif,
+    `${row.attendedCount}/${sortedExams.length}`,
     ...SUBJECT_LIST.map((s) => row.avgSubjectNets[s.key]),
     row.avgToplamNet,
     row.avgLgs,
     ...sortedExams.flatMap<string | number>((ex) => {
       const rec = row.examMap.get(ex.id);
-      if (!rec) return [...SUBJECT_LIST.map(() => ''), '', ''];
+      if (!rec) return [...SUBJECT_LIST.map(() => 'Girmedi'), 'Girmedi', 'Girmedi'];
       return [...SUBJECT_LIST.map((s) => rec.subjects[s.key].net), rec.toplam.net, rec.lgsPuan];
     }),
   ]);

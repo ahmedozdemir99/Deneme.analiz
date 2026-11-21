@@ -23,11 +23,50 @@ export function formatTrDelta(value: number | undefined, decimals = 2): string {
   return `${sign}${formatTrNumber(value, decimals)}`;
 }
 
-export function getSortedExams(student: StudentProfile): StudentExamRecord[] {
-  return [...student.exams].sort((a, b) => {
+/**
+ * Returns true only if the student actually participated in the exam
+ * (filters out absent / "Girmedi" rows that have 0 score, 0 correct, 0 wrong, and 0 net).
+ */
+export function isAttendedExamRecord(rec: StudentExamRecord | undefined | null): boolean {
+  if (!rec) return false;
+  if (Number.isFinite(rec.lgsPuan) && rec.lgsPuan > 0) return true;
+  if (rec.toplam && (rec.toplam.dogru > 0 || rec.toplam.yanlis > 0 || rec.toplam.net !== 0)) {
+    return true;
+  }
+  for (const s of SUBJECT_LIST) {
+    const sc = rec.subjects?.[s.key];
+    if (sc && (sc.dogru > 0 || sc.yanlis > 0 || sc.net !== 0)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Returns unique, chronologically ordered exams that the student actually attended.
+ * Optionally restricts to examIds currently present in the archive.
+ */
+export function getAttendedExams(
+  student: StudentProfile,
+  validExamIds?: Set<string>
+): StudentExamRecord[] {
+  if (!student.exams || student.exams.length === 0) return [];
+  const byExamId = new Map<string, StudentExamRecord>();
+  for (const ex of student.exams) {
+    if (!isAttendedExamRecord(ex)) continue;
+    if (validExamIds && !validExamIds.has(ex.examId)) continue;
+    if (!byExamId.has(ex.examId)) {
+      byExamId.set(ex.examId, ex);
+    }
+  }
+  return Array.from(byExamId.values()).sort((a, b) => {
     if (a.examOrder !== b.examOrder) return a.examOrder - b.examOrder;
     return a.examDate.localeCompare(b.examDate);
   });
+}
+
+export function getSortedExams(student: StudentProfile): StudentExamRecord[] {
+  return getAttendedExams(student);
 }
 
 export interface StudentProgressSummary {

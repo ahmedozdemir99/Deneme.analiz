@@ -35,7 +35,7 @@ import {
   StudentExamRecord,
   StudentProfile,
 } from '../types/exam';
-import { formatTrDelta, formatTrNumber } from '../utils/analytics';
+import { formatTrDelta, formatTrNumber, getAttendedExams } from '../utils/analytics';
 import { exportLeaderboardToExcel } from '../utils/excelHandler';
 import { VIVID_PALETTE } from './ChartTypeSelector';
 
@@ -140,39 +140,38 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
     }
   };
 
-  // Build dynamic student rows with per-exam records and multi-exam averages
+  // Build dynamic student rows with per-exam records and attended-only averages
+  // (e.g. attended 3 of 3 exams -> divided by 3; attended 2 of 3 exams -> divided by 2)
   const allRows: LeaderboardStudentRow[] = useMemo(() => {
+    const validExamIds = new Set(sortedExams.map((e) => e.id));
     const raw: Omit<LeaderboardStudentRow, 'schoolRank'>[] = [];
 
     for (const student of state.students) {
-      if (!student.exams || student.exams.length === 0) continue;
-
-      const sortedStudentExams = [...student.exams].sort((a, b) => {
-        if (a.examOrder !== b.examOrder) return a.examOrder - b.examOrder;
-        return a.examDate.localeCompare(b.examDate);
-      });
+      const attendedExams = getAttendedExams(student, validExamIds);
+      if (attendedExams.length === 0) continue;
 
       const examMap = new Map<string, StudentExamRecord>();
-      for (const ex of sortedStudentExams) {
+      for (const ex of attendedExams) {
         examMap.set(ex.examId, ex);
       }
 
-      const count = sortedStudentExams.length;
+      // Strictly divide by the exact number of exams this student attended
+      const attendedCount = attendedExams.length;
       const avgLgs = round2(
-        sortedStudentExams.reduce((acc, ex) => acc + ex.lgsPuan, 0) / count
+        attendedExams.reduce((acc, ex) => acc + ex.lgsPuan, 0) / attendedCount
       );
       const avgToplamNet = round2(
-        sortedStudentExams.reduce((acc, ex) => acc + ex.toplam.net, 0) / count
+        attendedExams.reduce((acc, ex) => acc + ex.toplam.net, 0) / attendedCount
       );
 
       const avgSubjectNets = {} as Record<SubjectKey, number>;
       const subjectDeltaPrev: Partial<Record<SubjectKey, number>> = {};
-      const latestExam = sortedStudentExams[count - 1];
-      const prevExam = count >= 2 ? sortedStudentExams[count - 2] : undefined;
+      const latestExam = attendedExams[attendedCount - 1];
+      const prevExam = attendedCount >= 2 ? attendedExams[attendedCount - 2] : undefined;
 
       for (const s of SUBJECT_LIST) {
         avgSubjectNets[s.key] = round2(
-          sortedStudentExams.reduce((acc, ex) => acc + ex.subjects[s.key].net, 0) / count
+          attendedExams.reduce((acc, ex) => acc + ex.subjects[s.key].net, 0) / attendedCount
         );
         if (prevExam) {
           subjectDeltaPrev[s.key] = round2(
@@ -181,12 +180,12 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         }
       }
 
-      const bestLgs = Math.max(...sortedStudentExams.map((ex) => ex.lgsPuan));
+      const bestLgs = Math.max(...attendedExams.map((ex) => ex.lgsPuan));
 
       raw.push({
         student,
         examMap,
-        attendedCount: count,
+        attendedCount,
         avgLgs,
         avgToplamNet,
         avgSubjectNets,
@@ -217,7 +216,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
       ...item,
       schoolRank: idx + 1,
     }));
-  }, [state.students, selectedSubject, generalMetric, sortDirection]);
+  }, [state.students, sortedExams, selectedSubject, generalMetric, sortDirection]);
 
   const classes = useMemo(() => {
     const set = new Set(allRows.map((r) => r.student.sinif));
@@ -366,7 +365,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             Çok İşlevli Başarı Sıralaması ve Deneme Ortalamaları
           </h1>
           <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
-            Ders seçerek o dersin ortalama netine göre veya genel ortalama puan/nete göre sıralayın · Her yeni deneme eklendiğinde otomatik güncellenir.
+            Ortalamalar her öğrencinin yalnızca girdiği deneme sayısına bölünerek hesaplanır (ör. 3 denemeye giren 3&apos;e, 2 denemeye giren 2&apos;ye bölünür) · Her yeni deneme eklendiğinde otomatik güncellenir.
           </p>
         </div>
 
@@ -866,8 +865,17 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                               {row.student.name}
                             </div>
                             <div className="font-mono text-[10px] text-slate-500 tabular-nums">
-                              {row.student.sinif} · No: {row.student.numara} · {row.attendedCount}/
-                              {sortedExams.length} deneme
+                              {row.student.sinif} · No: {row.student.numara} ·{' '}
+                              <span
+                                className={
+                                  row.attendedCount < sortedExams.length
+                                    ? 'font-semibold text-amber-700'
+                                    : 'text-slate-600'
+                                }
+                                title={`Bu öğrenci ${sortedExams.length} denemeden ${row.attendedCount} tanesine girdi; ortalamaları ${row.attendedCount}'e bölünerek hesaplandı.`}
+                              >
+                                {row.attendedCount}/{sortedExams.length} deneme (÷{row.attendedCount})
+                              </span>
                               {selectedClass !== 'ALL' ? ` · Okul #${row.schoolRank}` : ''}
                             </div>
                           </div>
@@ -1004,7 +1012,12 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                                 </div>
                               )
                             ) : (
-                              <span className="text-slate-300">—</span>
+                              <span
+                                className="text-[10px] font-medium text-slate-400"
+                                title="Öğrenci bu denemeye girmedi — ortalamasına dahil edilmez"
+                              >
+                                Girmedi
+                              </span>
                             )}
                           </td>
                         );
@@ -1057,9 +1070,14 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                                 {sortedExams.map((ex, eIdx) => {
                                   const rec = row.examMap.get(ex.id);
                                   return (
-                                    <tr key={ex.id} className="hover:bg-slate-50/60">
+                                    <tr key={ex.id} className={rec ? 'hover:bg-slate-50/60' : 'bg-slate-50/40 text-slate-400'}>
                                       <td className="px-3 py-2 font-semibold text-slate-800">
                                         {eIdx + 1}. Deneme — {ex.name}
+                                        {!rec && (
+                                          <span className="ml-2 text-[10px] font-medium text-amber-700">
+                                            (Girmedi · ortalamaya dahil değil)
+                                          </span>
+                                        )}
                                       </td>
                                       <td className="px-2.5 py-2 font-mono text-[11px] text-slate-500 tabular-nums">
                                         {rec?.examDate || ex.examDate || '—'}
@@ -1091,7 +1109,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                               <tfoot className="border-t-2 border-slate-200 bg-blue-50/60 font-bold">
                                 <tr>
                                   <td className="px-3 py-2 text-blue-900" colSpan={2}>
-                                    DENEME ORTALAMASI ({row.attendedCount} deneme)
+                                    DENEME ORTALAMASI (Girdiği {row.attendedCount} deneme · ÷{row.attendedCount})
                                   </td>
                                   {SUBJECT_LIST.map((s) => (
                                     <td
@@ -1208,7 +1226,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                   colSpan={SUBJECT_LIST.length + 2}
                   className="border-r border-slate-300 bg-blue-100/80 px-3 py-2 text-center text-blue-900"
                 >
-                  GENEL ORTALAMA ({sortedExams.length} Deneme)
+                  GENEL ORTALAMA (Girdiği Deneme Sayısına Göre)
                 </th>
                 {sortedExams.map((ex, idx) => (
                   <th
@@ -1296,7 +1314,14 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                         {row.student.name}
                       </div>
                       <div className="font-mono text-[10px] text-slate-500 tabular-nums">
-                        {row.student.sinif} · {row.attendedCount}/{sortedExams.length}D
+                        {row.student.sinif} ·{' '}
+                        <span
+                          className={
+                            row.attendedCount < sortedExams.length ? 'font-semibold text-amber-700' : ''
+                          }
+                        >
+                          {row.attendedCount}/{sortedExams.length}D (÷{row.attendedCount})
+                        </span>
                       </div>
                     </td>
 

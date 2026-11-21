@@ -8,6 +8,7 @@ import {
   StudentProfile,
 } from '../types/exam';
 import { buildStudentKey, normalizeClassName, normalizeTurkish } from './pdfParser';
+import { isAttendedExamRecord } from './analytics';
 
 const STORAGE_KEY = 'lgs_deneme_arsivi_v1';
 
@@ -85,6 +86,9 @@ function mergeStudentExamRecords(
   const bySignature = new Map<string, string>();
 
   const addRecord = (rec: StudentExamRecord) => {
+    // Ignore absent / "Girmedi" placeholder rows (0 score, 0 correct, 0 wrong, 0 net)
+    if (!isAttendedExamRecord(rec)) return;
+    if (validExamIds && validExamIds.size > 0 && !validExamIds.has(rec.examId)) return;
     const sig = `${normalizeTurkish(rec.examName)}__${rec.examDate}__${Math.round(rec.lgsPuan * 10)}__${Math.round(rec.toplam.net * 100)}`;
     const targetId = byExamId.has(rec.examId)
       ? rec.examId
