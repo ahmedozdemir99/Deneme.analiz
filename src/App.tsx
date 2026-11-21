@@ -8,6 +8,7 @@ import {
   AlertCircle,
   Loader2,
   X,
+  Trophy,
 } from 'lucide-react';
 import { ExamArchiveState, ParsedExamBundle, StudentExamRecord } from './types/exam';
 import { parseExamPdf } from './utils/pdfParser';
@@ -28,9 +29,10 @@ import { SchoolWeaknessView } from './components/SchoolWeaknessView';
 import { UploadModal } from './components/UploadModal';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { CloudBackupControl } from './components/CloudBackupControl';
+import { LeaderboardView } from './components/LeaderboardView';
 import { useCloudBackup } from './hooks/useCloudBackup';
 
-type NavTab = 'students' | 'overview' | 'archive' | 'weaknesses';
+type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses';
 
 const BUNDLED_SAMPLE_PDF_URL =
   '/assets/aistudio/zekiayvenli-8s_n_f-i_leyenzeka-1denme-toplu_a3d32d85.pdf';
@@ -198,6 +200,7 @@ export default function App() {
 
   const navItems: Array<{ id: NavTab; label: string; icon: React.ReactNode }> = [
     { id: 'students', label: 'Öğrenci Kartları', icon: <Users className="h-4 w-4" /> },
+    { id: 'leaderboard', label: 'Sıralama', icon: <Trophy className="h-4 w-4" /> },
     { id: 'overview', label: 'Genel Bakış', icon: <BarChart3 className="h-4 w-4" /> },
     { id: 'archive', label: 'Deneme Arşivi', icon: <FolderArchive className="h-4 w-4" /> },
     { id: 'weaknesses', label: 'Eksik Analizi', icon: <AlertCircle className="h-4 w-4" /> },
@@ -278,7 +281,7 @@ export default function App() {
         </div>
 
         {/* Mobile navigation row */}
-        <div className="grid grid-cols-4 gap-1 border-t border-slate-100 px-2 py-2 md:hidden">
+        <div className="grid grid-cols-5 gap-1 border-t border-slate-100 px-1.5 py-2 md:hidden">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -382,6 +385,12 @@ export default function App() {
               onOpenUpload={() => setIsUploadOpen(true)}
             />
           </div>
+        ) : activeTab === 'leaderboard' ? (
+          <LeaderboardView
+            state={archive}
+            onSelectStudent={handleSelectStudent}
+            onOpenUpload={() => setIsUploadOpen(true)}
+          />
         ) : activeTab === 'overview' ? (
           <OverviewView
             state={archive}
