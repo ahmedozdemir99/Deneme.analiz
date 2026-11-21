@@ -523,6 +523,20 @@ export async function parseExamExcel(
     throw new Error('Excel sayfasında geçerli öğrenci deneme satırı bulunamadı.');
   }
 
+  // Deduplicate repeated student rows within the same Excel sheet
+  const dedupedExcelMap = new Map<string, ParsedExamBundle['records'][number]>();
+  for (const item of records) {
+    const nameSig = normalizeTurkish(item.name).replace(/\s+/g, '');
+    const cleanNo = (item.numara || '').replace(/\D/g, '').replace(/^0+/, '');
+    const key = nameSig.length >= 4 ? `N_${nameSig}` : cleanNo ? `NO_${cleanNo}` : item.studentKey;
+    if (!dedupedExcelMap.has(key)) {
+      dedupedExcelMap.set(key, item);
+    }
+  }
+  const uniqueExcelRecords = Array.from(dedupedExcelMap.values());
+  records.length = 0;
+  records.push(...uniqueExcelRecords);
+
   // Compute school averages from parsed students if not provided in benchmark rows
   const computedAvgLgs =
     schoolAvgLgs ?? round2(records.reduce((s, r) => s + r.record.lgsPuan, 0) / records.length);

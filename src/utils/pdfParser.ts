@@ -30,6 +30,7 @@ interface LineCluster {
 
 export function normalizeTurkish(str: string): string {
   return str
+    .normalize('NFC')
     .replace(/İ/g, 'I')
     .replace(/ı/g, 'i')
     .replace(/Ğ/g, 'G')
@@ -59,12 +60,12 @@ export function normalizeClassName(raw: string): string {
 
 export function buildStudentKey(numara: string, name: string, sinif: string): string {
   const cleanNo = (numara || '').replace(/\D/g, '').replace(/^0+/, '');
-  const cleanName = normalizeTurkish(name);
-  const cleanSinif = normalizeTurkish(normalizeClassName(sinif));
+  const cleanName = normalizeTurkish(name).replace(/\s+/g, '_');
+  const cleanSinif = normalizeTurkish(normalizeClassName(sinif)).replace(/\s+/g, '_');
   if (cleanNo) {
     return `NO_${cleanNo}`;
   }
-  return `NAME_${cleanName}_${cleanSinif}`;
+  return `NAME_${cleanName}_${cleanSinif}`.slice(0, 120);
 }
 
 function parseTrNumber(raw: string | undefined): number | null {
@@ -1507,6 +1508,42 @@ export async function parseExamPdf(
       'PDF dosyasında okunabilir LGS deneme tablosu veya sonuç belgesi bulunamadı. Taranmış resim PDF yerine metin tabanlı deneme sonuç PDF dosyası yükleyin.'
     );
   }
+
+  // Strictly deduplicate students within the same PDF (handles multi-page reports or repeated sections)
+  const dedupedRecordsMap = new Map<string, ParsedExamBundle['records'][number]>();
+  for (const item of records) {
+    const nameSig = normalizeTurkish(item.name).replace(/\s+/g, '');
+    const cleanNo = (item.numara || '').replace(/\D/g, '').replace(/^0+/, '');
+    const dedupKey = nameSig.length >= 4 ? `N_${nameSig}` : cleanNo ? `NO_${cleanNo}` : item.studentKey;
+    const prev = dedupedRecordsMap.get(dedupKey);
+    if (!prev) {
+      dedupedRecordsMap.set(dedupKey, item);
+    } else {
+      // Merge kazanımlar and keep the fuller/higher-info record
+      const mergedKazanimlar =
+        prev.record.kazanimlar.length >= item.record.kazanimlar.length
+          ? prev.record.kazanimlar
+          : item.record.kazanimlar;
+      const preferNew =
+        (item.record.lgsPuan > 0 && prev.record.lgsPuan === 0) ||
+        item.record.kazanimlar.length > prev.record.kazanimlar.length;
+      const chosen = preferNew ? item : prev;
+      const other = preferNew ? prev : item;
+      dedupedRecordsMap.set(dedupKey, {
+        ...chosen,
+        numara: chosen.numara && chosen.numara !== '0' ? chosen.numara : other.numara,
+        name: chosen.name.length >= other.name.length ? chosen.name : other.name,
+        sinif: chosen.sinif && !chosen.sinif.endsWith('-XX') ? chosen.sinif : other.sinif,
+        record: {
+          ...chosen.record,
+          kazanimlar: mergedKazanimlar,
+        },
+      });
+    }
+  }
+  const uniqueRecords = Array.from(dedupedRecordsMap.values());
+  records.length = 0;
+  records.push(...uniqueRecords);
 
   // Compute school averages if not explicitly provided in header
   const avgLgs =

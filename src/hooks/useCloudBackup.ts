@@ -301,9 +301,14 @@ export function useCloudBackup(
           cloud.archive
         );
 
+        const cloudHadDuplicates =
+          cloud.removedDuplicates > 0 ||
+          cloud.archive.students.length < cloud.manifest.studentHashes.size;
+
         const cloudDiffersFromLocal =
           merged.exams.length !== currentLocal.exams.length ||
           merged.students.length !== currentLocal.students.length ||
+          cloudHadDuplicates ||
           (cloud.exists && !localHadUniqueData);
 
         if (cloud.exists && cloudDiffersFromLocal) {
@@ -316,7 +321,7 @@ export function useCloudBackup(
           persistBackupTimestamp(cloud.lastBackupAt);
         }
 
-        if (!cloud.exists || localHadUniqueData || hadPendingOfflineBackup) {
+        if (!cloud.exists || localHadUniqueData || hadPendingOfflineBackup || cloudHadDuplicates) {
           await executeBackup(false, true);
         } else {
           markPendingFlag(false);
@@ -574,8 +579,12 @@ export function useCloudBackup(
       if (cloud.lastBackupAt) {
         persistBackupTimestamp(cloud.lastBackupAt);
       }
-      markPendingFlag(false);
-      setSyncStatus('synced');
+      if (cloud.removedDuplicates > 0) {
+        await executeBackup(false, true);
+      } else {
+        markPendingFlag(false);
+        setSyncStatus('synced');
+      }
       onNotify?.({
         type: 'info',
         text: `Bulut yedeği geri yüklendi (${cloud.archive.exams.length} deneme, ${cloud.archive.students.length} öğrenci).`,

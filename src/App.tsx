@@ -14,6 +14,7 @@ import { ExamArchiveState, ParsedExamBundle, StudentExamRecord } from './types/e
 import { parseExamPdf } from './utils/pdfParser';
 import {
   addManualExamToStudent,
+  deduplicateArchiveState,
   deleteExamFromState,
   EMPTY_ARCHIVE_STATE,
   loadArchiveState,
@@ -182,11 +183,12 @@ export default function App() {
 
   const handleImportJson = useCallback(
     (imported: ExamArchiveState) => {
-      persistAndSet(imported);
+      const { state: cleaned } = deduplicateArchiveState(imported);
+      persistAndSet(cleaned);
       setSelectedStudentId(null);
       setBannerMessage({
         type: 'info',
-        text: `Yedek başarıyla yüklendi (${imported.exams.length} deneme, ${imported.students.length} öğrenci).`,
+        text: `Yedek başarıyla yüklendi (${cleaned.exams.length} deneme, ${cleaned.students.length} öğrenci).`,
       });
     },
     [persistAndSet]

@@ -20,6 +20,7 @@ import {
   StudentExamRecord,
   StudentProfile,
 } from '../types/exam';
+import { deduplicateArchiveState } from './storage';
 
 // Blueprint maxLength & volumetric constants (synchronized with firebase-blueprint.json & firestore.rules)
 const MAX_ID_LEN = 128;
@@ -210,6 +211,7 @@ export interface CloudLoadResult {
   archive: ExamArchiveState;
   lastBackupAt: Date | null;
   manifest: CloudSyncManifest;
+  removedDuplicates: number;
 }
 
 export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult> {
@@ -229,6 +231,7 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
         archive: { exams: [], students: [] },
         lastBackupAt: null,
         manifest,
+        removedDuplicates: 0,
       };
     }
 
@@ -309,11 +312,14 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
 
   exams.sort((a, b) => a.examOrder - b.examOrder);
 
+  const { state: cleanedCloud, removedDuplicates } = deduplicateArchiveState({ exams, students });
+
   return {
     exists: true,
-    archive: { exams, students },
+    archive: cleanedCloud,
     lastBackupAt,
     manifest,
+    removedDuplicates,
   };
 }
 
@@ -565,9 +571,10 @@ export function mergeLocalAndCloudArchives(
   cloud: ExamArchiveState
 ): { merged: ExamArchiveState; localHadUniqueData: boolean } {
   if (cloud.exams.length === 0 && cloud.students.length === 0) {
+    const { state: cleanedLocal } = deduplicateArchiveState(local);
     return {
-      merged: local,
-      localHadUniqueData: local.exams.length > 0 || local.students.length > 0,
+      merged: cleanedLocal,
+      localHadUniqueData: cleanedLocal.exams.length > 0 || cleanedLocal.students.length > 0,
     };
   }
 
@@ -575,7 +582,8 @@ export function mergeLocalAndCloudArchives(
   const localHasOnlySample =
     local.exams.length === 0 || (local.exams.length === 1 && local.exams[0].isSample);
   if (localHasOnlySample) {
-    return { merged: cloud, localHadUniqueData: false };
+    const { state: cleanedCloud } = deduplicateArchiveState(cloud);
+    return { merged: cleanedCloud, localHadUniqueData: false };
   }
 
   const examById = new Map<string, ExamMeta>();
@@ -637,11 +645,13 @@ export function mergeLocalAndCloudArchives(
     }
   }
 
+  const { state: dedupedMerged } = deduplicateArchiveState({
+    exams: Array.from(examById.values()).sort((a, b) => a.examOrder - b.examOrder),
+    students: Array.from(studentById.values()),
+  });
+
   return {
-    merged: {
-      exams: Array.from(examById.values()).sort((a, b) => a.examOrder - b.examOrder),
-      students: Array.from(studentById.values()),
-    },
+    merged: dedupedMerged,
     localHadUniqueData: true,
   };
 }
