@@ -190,7 +190,8 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         subjectDeltaPrev,
         bestLgs,
         latestExam,
-        lgsDeltaPrev: prevExam ? round2(latestExam.lgsPuan - prevExam.lgsPuan) : undefined,
+        lgsDeltaPrev: prevExam && latestExam.lgsPuan > 0 && prevExam.lgsPuan > 0
+          ? round2(latestExam.lgsPuan - prevExam.lgsPuan) : undefined,
         netDeltaPrev: prevExam ? round2(latestExam.toplam.net - prevExam.toplam.net) : undefined,
       });
     }
@@ -200,6 +201,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
     raw.sort((a, b) => {
       const aVal = getPrimarySortValue(a);
       const bVal = getPrimarySortValue(b);
+      // Missing LGS scores must never outrank students with measured scores.
+      const aMissing = !Number.isFinite(aVal);
+      const bMissing = !Number.isFinite(bVal);
+      if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      if (aMissing && bMissing) return b.avgToplamNet - a.avgToplamNet;
       if (aVal !== bVal) {
         return (bVal - aVal) * dir;
       }
