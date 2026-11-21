@@ -1,15 +1,13 @@
 import {
   collection,
   doc,
-  getDoc,
-  getDocs,
+  getDocFromServer,
+  getDocsFromServer,
   query,
   serverTimestamp,
-  setDoc,
+  runTransaction,
   Timestamp,
-  updateDoc,
   where,
-  writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
@@ -36,23 +34,7 @@ const MAX_STUDENT_NAME_LEN = 160;
 const MAX_SINIF_LEN = 40;
 const MAX_EXAMS_PER_STUDENT = 100;
 const VALID_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
-const MAX_BATCH_OPS = 400;
-
-export interface CloudSyncManifest {
-  uid: string;
-  hasRootDoc: boolean;
-  examHashes: Map<string, string>;
-  studentHashes: Map<string, string>;
-}
-
-export function createEmptyManifest(uid: string): CloudSyncManifest {
-  return {
-    uid,
-    hasRootDoc: false,
-    examHashes: new Map(),
-    studentHashes: new Map(),
-  };
-}
+const MAX_TRANSACTION_DOCS = 100;
 
 function clampString(val: unknown, maxLen: number, fallback = ''): string {
   const s = typeof val === 'string' ? val.trim() : fallback;
@@ -134,7 +116,7 @@ function sanitizeSubjectNetMap(
   return hasAny ? out : undefined;
 }
 
-function buildSanitizedExamFields(exam: ExamMeta, safeId: string): Record<string, unknown> {
+function buildSanitizedExamFields(exam: ExamMeta): Record<string, unknown> {
   const fields: Record<string, unknown> = {
     name: clampString(exam.name, MAX_EXAM_NAME_LEN, 'Deneme Sınavı') || 'Deneme Sınavı',
     fileName: clampString(exam.fileName, MAX_FILE_NAME_LEN, 'deneme.pdf') || 'deneme.pdf',
@@ -168,8 +150,6 @@ function buildSanitizedExamFields(exam: ExamMeta, safeId: string): Record<string
   const generalNets = sanitizeSubjectNetMap(exam.generalSubjectNets);
   if (generalNets) fields.generalSubjectNets = generalNets;
 
-  // Keep reference to safeId only when needed by caller
-  void safeId;
   return fields;
 }
 
@@ -195,7 +175,6 @@ function buildSanitizedStudentFields(
   examIdMap: Map<string, string>
 ): Record<string, unknown> {
   const safeExams = (student.exams || [])
-    .slice(0, MAX_EXAMS_PER_STUDENT)
     .map((ex) => sanitizeStudentExamRecord(ex, examIdMap));
 
   return {
@@ -210,8 +189,6 @@ export interface CloudLoadResult {
   exists: boolean;
   archive: ExamArchiveState;
   lastBackupAt: Date | null;
-  manifest: CloudSyncManifest;
-  removedDuplicates: number;
 }
 
 export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult> {
@@ -220,22 +197,18 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
   const examsPath = `users/${safeUid}/exams`;
   const studentsPath = `users/${safeUid}/students`;
 
-  const manifest = createEmptyManifest(safeUid);
   let lastBackupAt: Date | null = null;
 
   try {
-    const rootSnap = await getDoc(doc(db, 'users', safeUid));
+    const rootSnap = await getDocFromServer(doc(db, 'users', safeUid));
     if (!rootSnap.exists()) {
       return {
         exists: false,
         archive: { exams: [], students: [] },
         lastBackupAt: null,
-        manifest,
-        removedDuplicates: 0,
       };
     }
 
-    manifest.hasRootDoc = true;
     const rootData = rootSnap.data();
     if (rootData?.lastBackupAt instanceof Timestamp) {
       lastBackupAt = rootData.lastBackupAt.toDate();
@@ -252,7 +225,7 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
       collection(db, 'users', safeUid, 'exams'),
       where('ownerId', '==', safeUid)
     );
-    const examsSnap = await getDocs(examsQuery);
+    const examsSnap = await getDocsFromServer(examsQuery);
     for (const d of examsSnap.docs) {
       const data = d.data();
       const exam: ExamMeta = {
@@ -278,8 +251,6 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
         ...(data.generalSubjectNets ? { generalSubjectNets: data.generalSubjectNets } : {}),
       };
       exams.push(exam);
-      const fields = buildSanitizedExamFields(exam, exam.id);
-      manifest.examHashes.set(exam.id, simpleHash(JSON.stringify(fields)));
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, examsPath);
@@ -290,8 +261,7 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
       collection(db, 'users', safeUid, 'students'),
       where('ownerId', '==', safeUid)
     );
-    const studentsSnap = await getDocs(studentsQuery);
-    const examIdMap = new Map<string, string>(exams.map((e) => [e.id, e.id]));
+    const studentsSnap = await getDocsFromServer(studentsQuery);
 
     for (const d of studentsSnap.docs) {
       const data = d.data();
@@ -303,8 +273,6 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
         exams: Array.isArray(data.exams) ? (data.exams as StudentExamRecord[]) : [],
       };
       students.push(student);
-      const fields = buildSanitizedStudentFields(student, examIdMap);
-      manifest.studentHashes.set(student.id, simpleHash(JSON.stringify(fields)));
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, studentsPath);
@@ -312,254 +280,123 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
 
   exams.sort((a, b) => a.examOrder - b.examOrder);
 
-  const { state: cleanedCloud, removedDuplicates } = deduplicateArchiveState({ exams, students });
+  const { state: cleanedCloud } = deduplicateArchiveState({ exams, students });
 
   return {
     exists: true,
     archive: cleanedCloud,
     lastBackupAt,
-    manifest,
-    removedDuplicates,
   };
 }
 
-export interface CloudSyncResult {
-  writtenDocs: number;
-  deletedDocs: number;
-  syncedAt: Date;
-  manifest: CloudSyncManifest;
-}
-
-/**
- * Syncs the full ExamArchiveState to Firestore using minimal diff batched writes.
- * Strictly obeys firestore.rules:
- *  - Creates parent /users/{uid} first so Master Gate parentArchiveOwnedBy(uid) always passes.
- *  - Uses `set` (with createdAt + updatedAt) for new documents and `update` (preserving createdAt) for existing documents.
- *  - Deletes removed exams/students so cloud stays an exact mirror of the archive.
- */
-export async function syncArchiveToCloud(
+/** Append newly added exams and results while preserving every existing cloud record. */
+export async function appendExamsToCloud(
   uid: string,
   displayName: string,
   archive: ExamArchiveState,
-  currentManifest: CloudSyncManifest | null,
-  options?: { forceFull?: boolean }
-): Promise<CloudSyncResult> {
+  examIds: ReadonlySet<string>
+): Promise<Date | null> {
   const safeUid = sanitizeFirestoreId(uid, 'u');
-  const safeDisplayName = clampString(displayName, MAX_DISPLAY_NAME_LEN, 'Kullanıcı');
   const rootRef = doc(db, 'users', safeUid);
-  const rootPath = `users/${safeUid}`;
+  const exams = archive.exams.filter((exam) => examIds.has(exam.id) && !exam.isSample);
+  if (exams.length === 0) return null;
 
-  let manifest: CloudSyncManifest;
-  if (currentManifest && currentManifest.uid === safeUid) {
-    manifest = {
-      uid: safeUid,
-      hasRootDoc: currentManifest.hasRootDoc,
-      examHashes: new Map(currentManifest.examHashes),
-      studentHashes: new Map(currentManifest.studentHashes),
-    };
-  } else {
-    // Hydrate remote IDs once so we never call setDoc on an already existing doc (which would violate createdAt immutability)
-    const remote = await loadArchiveFromCloud(safeUid);
-    manifest = remote.manifest;
-  }
+  const examIdMap = new Map(exams.map((exam) => [exam.id, sanitizeFirestoreId(exam.id, 'exam')]));
+  const additions = [
+    ...exams.map((exam) => ({
+      collection: 'exams' as const,
+      id: examIdMap.get(exam.id)!,
+      fields: buildSanitizedExamFields(exam),
+    })),
+    ...archive.students.flatMap((student) => {
+      const records = student.exams.filter((record) => examIdMap.has(record.examId));
+      if (records.length === 0) return [];
+      return [{
+        collection: 'students' as const,
+        id: sanitizeFirestoreId(student.id, 'stu'),
+        fields: buildSanitizedStudentFields({ ...student, exams: records }, examIdMap),
+      }];
+    }),
+  ];
 
-  // Step 1: Ensure parent root document exists before writing any subcollection documents (Master Gate)
-  if (!manifest.hasRootDoc) {
-    try {
-      await setDoc(rootRef, {
-        ownerId: safeUid,
-        displayName: safeDisplayName,
-        examCount: Math.min(500, archive.exams.length),
-        studentCount: Math.min(5000, archive.students.length),
-        lastBackupAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      manifest.hasRootDoc = true;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, rootPath);
-    }
-  }
-
-  // Build deterministic sanitized IDs for exams
-  const examIdMap = new Map<string, string>();
-  const usedExamIds = new Set<string>();
-  const sanitizedExams: Array<{ id: string; fields: Record<string, unknown>; hash: string }> = [];
-
-  for (const ex of archive.exams.slice(0, 500)) {
-    let safeId = sanitizeFirestoreId(ex.id, 'exam');
-    while (usedExamIds.has(safeId)) {
-      safeId = sanitizeFirestoreId(`${safeId}_${usedExamIds.size}`, 'exam');
-    }
-    usedExamIds.add(safeId);
-    examIdMap.set(ex.id, safeId);
-
-    const fields = buildSanitizedExamFields(ex, safeId);
-    const hash = simpleHash(JSON.stringify(fields));
-    sanitizedExams.push({ id: safeId, fields, hash });
-  }
-
-  // Build deterministic sanitized IDs for students
-  const usedStudentIds = new Set<string>();
-  const sanitizedStudents: Array<{ id: string; fields: Record<string, unknown>; hash: string }> = [];
-
-  for (const st of archive.students.slice(0, 5000)) {
-    let safeId = sanitizeFirestoreId(st.id, 'stu');
-    while (usedStudentIds.has(safeId)) {
-      safeId = sanitizeFirestoreId(`${safeId}_${usedStudentIds.size}`, 'stu');
-    }
-    usedStudentIds.add(safeId);
-
-    const fields = buildSanitizedStudentFields(st, examIdMap);
-    const hash = simpleHash(JSON.stringify(fields));
-    sanitizedStudents.push({ id: safeId, fields, hash });
-  }
-
-  type BatchOp =
-    | { kind: 'set'; path: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }
-    | { kind: 'update'; path: string; ref: ReturnType<typeof doc>; data: Record<string, unknown> }
-    | { kind: 'delete'; path: string; ref: ReturnType<typeof doc> };
-
-  const ops: BatchOp[] = [];
-  const nextExamHashes = new Map<string, string>();
-  const nextStudentHashes = new Map<string, string>();
-  let writtenDocs = 0;
-  let deletedDocs = 0;
-
-  // Diff exams
-  for (const ex of sanitizedExams) {
-    nextExamHashes.set(ex.id, ex.hash);
-    const prevHash = manifest.examHashes.get(ex.id);
-    const ref = doc(db, 'users', safeUid, 'exams', ex.id);
-    const path = `users/${safeUid}/exams/${ex.id}`;
-
-    if (prevHash === undefined) {
-      ops.push({
-        kind: 'set',
-        path,
-        ref,
-        data: {
-          id: ex.id,
-          ownerId: safeUid,
-          ...ex.fields,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-      });
-      writtenDocs += 1;
-    } else if (options?.forceFull || prevHash !== ex.hash) {
-      ops.push({
-        kind: 'update',
-        path,
-        ref,
-        data: {
-          ...ex.fields,
-          updatedAt: serverTimestamp(),
-        },
-      });
-      writtenDocs += 1;
-    }
-  }
-
-  for (const oldExamId of manifest.examHashes.keys()) {
-    if (!nextExamHashes.has(oldExamId)) {
-      ops.push({
-        kind: 'delete',
-        path: `users/${safeUid}/exams/${oldExamId}`,
-        ref: doc(db, 'users', safeUid, 'exams', oldExamId),
-      });
-      deletedDocs += 1;
-    }
-  }
-
-  // Diff students
-  for (const st of sanitizedStudents) {
-    nextStudentHashes.set(st.id, st.hash);
-    const prevHash = manifest.studentHashes.get(st.id);
-    const ref = doc(db, 'users', safeUid, 'students', st.id);
-    const path = `users/${safeUid}/students/${st.id}`;
-
-    if (prevHash === undefined) {
-      ops.push({
-        kind: 'set',
-        path,
-        ref,
-        data: {
-          id: st.id,
-          ownerId: safeUid,
-          ...st.fields,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-      });
-      writtenDocs += 1;
-    } else if (options?.forceFull || prevHash !== st.hash) {
-      ops.push({
-        kind: 'update',
-        path,
-        ref,
-        data: {
-          ...st.fields,
-          updatedAt: serverTimestamp(),
-        },
-      });
-      writtenDocs += 1;
-    }
-  }
-
-  for (const oldStudentId of manifest.studentHashes.keys()) {
-    if (!nextStudentHashes.has(oldStudentId)) {
-      ops.push({
-        kind: 'delete',
-        path: `users/${safeUid}/students/${oldStudentId}`,
-        ref: doc(db, 'users', safeUid, 'students', oldStudentId),
-      });
-      deletedDocs += 1;
-    }
-  }
-
-  // Commit in chunks of MAX_BATCH_OPS
-  for (let i = 0; i < ops.length; i += MAX_BATCH_OPS) {
-    const chunk = ops.slice(i, i + MAX_BATCH_OPS);
-    const batch = writeBatch(db);
-    for (const op of chunk) {
-      if (op.kind === 'set') {
-        batch.set(op.ref, op.data);
-      } else if (op.kind === 'update') {
-        batch.update(op.ref, op.data);
-      } else {
-        batch.delete(op.ref);
-      }
-    }
-    try {
-      await batch.commit();
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, chunk[0]?.path ?? rootPath);
-    }
-  }
-
-  // Always refresh root archive timestamp & counts on backup completion
+  const safeDisplayName = clampString(displayName, MAX_DISPLAY_NAME_LEN, 'Kullanıcı');
   try {
-    await updateDoc(rootRef, {
-      displayName: safeDisplayName,
-      examCount: Math.min(500, sanitizedExams.length),
-      studentCount: Math.min(5000, sanitizedStudents.length),
-      lastBackupAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+    // Existing rules require the parent to exist before any child write.
+    await runTransaction(db, async (transaction) => {
+      const root = await transaction.get(rootRef);
+      if (!root.exists()) {
+        transaction.set(rootRef, {
+          ownerId: safeUid,
+          displayName: safeDisplayName,
+          examCount: 0,
+          studentCount: 0,
+          lastBackupAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
     });
+
+    let lastBackupAt: Date | null = null;
+    for (let i = 0; i < additions.length; i += MAX_TRANSACTION_DOCS) {
+      const chunk = additions.slice(i, i + MAX_TRANSACTION_DOCS);
+      const wrote = await runTransaction(db, async (transaction) => {
+        const root = await transaction.get(rootRef);
+        const documents = await Promise.all(chunk.map(async (addition) => {
+          const ref = doc(db, 'users', safeUid, addition.collection, addition.id);
+          return { ...addition, ref, snapshot: await transaction.get(ref) };
+        }));
+        let examCount = Number(root.get('examCount') ?? 0);
+        let studentCount = Number(root.get('studentCount') ?? 0);
+        let changed = false;
+        for (const { collection, id, fields, ref, snapshot } of documents) {
+          const incoming = (fields.exams ?? []) as StudentExamRecord[];
+          const stored = (snapshot.data()?.exams ?? []) as StudentExamRecord[];
+          const knownExamIds = new Set(stored.map((record) => record.examId));
+          const newRecords = incoming.filter((record) => {
+            if (knownExamIds.has(record.examId)) return false;
+            knownExamIds.add(record.examId);
+            return true;
+          });
+          if (stored.length + newRecords.length > MAX_EXAMS_PER_STUDENT) {
+            throw new Error('Bir öğrenci için bulut yedeği 100 deneme sınırına ulaştı.');
+          }
+          if (!snapshot.exists()) {
+            transaction.set(ref, {
+              ...fields,
+              ...(collection === 'students' ? { exams: newRecords } : {}),
+              id,
+              ownerId: safeUid,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            if (collection === 'exams') examCount += 1;
+            else studentCount += 1;
+            changed = true;
+          } else if (newRecords.length > 0) {
+            transaction.update(ref, {
+              exams: [...stored, ...newRecords],
+              updatedAt: serverTimestamp(),
+            });
+            changed = true;
+          }
+        }
+        if (changed) {
+          transaction.update(rootRef, {
+            examCount: Math.min(500, examCount),
+            studentCount: Math.min(5000, studentCount),
+            lastBackupAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+        return changed;
+      });
+      if (wrote) lastBackupAt = new Date();
+    }
+    return lastBackupAt;
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, rootPath);
+    handleFirestoreError(error, OperationType.WRITE, rootRef.path);
   }
-
-  manifest.examHashes = nextExamHashes;
-  manifest.studentHashes = nextStudentHashes;
-
-  return {
-    writtenDocs,
-    deletedDocs,
-    syncedAt: new Date(),
-    manifest,
-  };
 }
 
 /**

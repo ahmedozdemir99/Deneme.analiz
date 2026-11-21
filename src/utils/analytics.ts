@@ -130,9 +130,9 @@ export function getStudentSummaryForExam(
 
   const bestLgs = Math.max(...sorted.map((e) => e.lgsPuan));
   const avgLgs =
-    Math.round((sorted.reduce((a, e) => a + e.lgsPuan, 0) / sorted.length) * 100) / 100;
+    sorted.reduce((sum, exam) => sum + exam.lgsPuan, 0) / sorted.length;
   const avgNet =
-    Math.round((sorted.reduce((a, e) => a + e.toplam.net, 0) / sorted.length) * 100) / 100;
+    sorted.reduce((sum, exam) => sum + exam.toplam.net, 0) / sorted.length;
 
   return {
     latest,

@@ -10,13 +10,12 @@ import {
 import { auth, firebaseProjectId, googleProvider } from '../firebase';
 import { ExamArchiveState } from '../types/exam';
 import {
-  CloudSyncManifest,
+  appendExamsToCloud,
   loadArchiveFromCloud,
   mergeLocalAndCloudArchives,
-  syncArchiveToCloud,
 } from '../utils/cloudBackup';
 
-const PENDING_EXIT_BACKUP_KEY = 'lgs_pending_cloud_backup_v1';
+const PENDING_EXAMS_KEY = 'lgs_pending_cloud_exams_v2';
 const LAST_CLOUD_BACKUP_AT_KEY = 'lgs_last_cloud_backup_at_v1';
 
 export type CloudSyncStatus =
@@ -42,8 +41,9 @@ export interface UseCloudBackupResult {
   firebaseProjectId: string;
   signInWithGoogle: () => Promise<void>;
   signInWithGoogleRedirect: () => Promise<void>;
-  backupAndSignOut: () => Promise<void>;
-  backupNow: (forceFull?: boolean) => Promise<boolean>;
+  signOutFromCloud: () => Promise<void>;
+  queueNewExams: (next: ExamArchiveState, examIds: string[]) => void;
+  backupNow: () => Promise<boolean>;
   restoreFromCloud: () => Promise<boolean>;
 }
 
@@ -87,7 +87,7 @@ function parseFriendlyError(error: unknown): { code: string | null; message: str
         return {
           code: 'network-offline',
           message:
-            'İnternet bağlantısı veya bulut sunucusuna erişim kurulamadı. Bağlantı geldiğinde otomatik yedeklenecektir.',
+            'İnternet bağlantısı veya bulut sunucusuna erişim kurulamadı. Bağlantı geldiğinde yedeklemeyi yeniden deneyebilirsiniz.',
         };
       }
       return { code, message: `Bulut hatası: ${parsed.error}` };
@@ -182,27 +182,20 @@ export function useCloudBackup(
 
   const archiveRef = useRef<ExamArchiveState>(archive);
   const userRef = useRef<User | null>(user);
-  const manifestRef = useRef<CloudSyncManifest | null>(null);
   const hydratedUidRef = useRef<string | null>(null);
+  const hydrationRef = useRef<Promise<boolean> | null>(null);
   const syncInFlightRef = useRef<Promise<boolean> | null>(null);
-  const dirtyRef = useRef<boolean>(false);
-  const debounceTimerRef = useRef<number | null>(null);
-  const suppressNextAutoSyncRef = useRef<boolean>(false);
+  const pendingExamIdsRef = useRef(new Set<string>());
 
   archiveRef.current = archive;
-  userRef.current = user;
 
-  const markPendingFlag = useCallback((pending: boolean) => {
-    dirtyRef.current = pending;
-    setHasPendingChanges(pending);
+  const persistPendingExams = useCallback((uid: string) => {
+    const ids = [...pendingExamIdsRef.current];
+    setHasPendingChanges(ids.length > 0);
     try {
-      if (pending) {
-        localStorage.setItem(PENDING_EXIT_BACKUP_KEY, '1');
-      } else {
-        localStorage.removeItem(PENDING_EXIT_BACKUP_KEY);
-      }
+      localStorage.setItem(`${PENDING_EXAMS_KEY}:${uid}`, JSON.stringify(ids));
     } catch {
-      // ignore storage errors
+      // Pending exams can still be retried during this session.
     }
   }, []);
 
@@ -215,127 +208,97 @@ export function useCloudBackup(
     }
   }, []);
 
-  const executeBackup = useCallback(
-    async (forceFull = false, silent = false): Promise<boolean> => {
-      const activeUser = userRef.current;
-      if (!activeUser) return false;
+  const backupNow = useCallback(async (): Promise<boolean> => {
+    const activeUser = userRef.current;
+    if (!activeUser || pendingExamIdsRef.current.size === 0) return false;
+    if (syncInFlightRef.current) return syncInFlightRef.current;
+    if (!navigator.onLine) {
+      setSyncStatus('offline');
+      return false;
+    }
 
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        markPendingFlag(true);
-        setSyncStatus('offline');
-        return false;
-      }
-
-      if (syncInFlightRef.current) {
-        return syncInFlightRef.current;
-      }
-
-      const task = (async (): Promise<boolean> => {
-        setSyncStatus('syncing');
-        setErrorMessage(null);
-        setErrorCode(null);
-        try {
-          const result = await syncArchiveToCloud(
+    const task = (async () => {
+      await hydrationRef.current;
+      if (userRef.current?.uid !== activeUser.uid) return false;
+      setSyncStatus('syncing');
+      setErrorMessage(null);
+      setErrorCode(null);
+      try {
+        while (pendingExamIdsRef.current.size > 0) {
+          const examIds = new Set(pendingExamIdsRef.current);
+          const timestamp = await appendExamsToCloud(
             activeUser.uid,
             activeUser.displayName || activeUser.email || 'Öğretmen',
             archiveRef.current,
-            manifestRef.current,
-            { forceFull }
+            examIds
           );
-          manifestRef.current = result.manifest;
-          persistBackupTimestamp(result.syncedAt);
-          markPendingFlag(false);
-          setSyncStatus('synced');
-          if (!silent && onNotify) {
-            onNotify({
-              type: 'info',
-              text: `Tüm deneme ve öğrenci sonuçları buluta yedeklendi (${archiveRef.current.exams.length} deneme, ${archiveRef.current.students.length} öğrenci).`,
-            });
-          }
-          return true;
-        } catch (error) {
-          const friendly = parseFriendlyError(error);
-          setErrorMessage(friendly.message);
-          setErrorCode(friendly.code);
-          setSyncStatus('error');
-          markPendingFlag(true);
-          if (!silent && onNotify) {
-            onNotify({ type: 'error', text: friendly.message });
-          }
-          return false;
-        } finally {
-          syncInFlightRef.current = null;
+          if (userRef.current?.uid !== activeUser.uid) return false;
+          for (const id of examIds) pendingExamIdsRef.current.delete(id);
+          persistPendingExams(activeUser.uid);
+          if (timestamp) persistBackupTimestamp(timestamp);
         }
-      })();
-
-      syncInFlightRef.current = task;
-      return task;
-    },
-    [markPendingFlag, onNotify, persistBackupTimestamp]
-  );
-
-  // Hydrate cloud archive on sign-in
-  const hydrateForUser = useCallback(
-    async (signedInUser: User) => {
-      if (hydratedUidRef.current === signedInUser.uid) return;
-      hydratedUidRef.current = signedInUser.uid;
-      setSyncStatus('hydrating');
-      setErrorMessage(null);
-      setErrorCode(null);
-
-      try {
-        const cloud = await loadArchiveFromCloud(signedInUser.uid);
-        manifestRef.current = cloud.manifest;
-
-        const hadPendingOfflineBackup = (() => {
-          try {
-            return localStorage.getItem(PENDING_EXIT_BACKUP_KEY) === '1';
-          } catch {
-            return false;
-          }
-        })();
-
-        const currentLocal = archiveRef.current;
-        const { merged, localHadUniqueData } = mergeLocalAndCloudArchives(
-          currentLocal,
-          cloud.archive
-        );
-
-        const cloudHadDuplicates =
-          cloud.removedDuplicates > 0 ||
-          cloud.archive.students.length < cloud.manifest.studentHashes.size;
-
-        const cloudDiffersFromLocal =
-          merged.exams.length !== currentLocal.exams.length ||
-          merged.students.length !== currentLocal.students.length ||
-          cloudHadDuplicates ||
-          (cloud.exists && !localHadUniqueData);
-
-        if (cloud.exists && cloudDiffersFromLocal) {
-          suppressNextAutoSyncRef.current = true;
-          archiveRef.current = merged;
-          onReplaceArchive(merged);
-        }
-
-        if (cloud.lastBackupAt) {
-          persistBackupTimestamp(cloud.lastBackupAt);
-        }
-
-        if (!cloud.exists || localHadUniqueData || hadPendingOfflineBackup || cloudHadDuplicates) {
-          await executeBackup(false, true);
-        } else {
-          markPendingFlag(false);
-          setSyncStatus('synced');
-        }
+        setSyncStatus('synced');
+        return true;
       } catch (error) {
+        if (userRef.current?.uid !== activeUser.uid) return false;
         const friendly = parseFriendlyError(error);
         setErrorMessage(friendly.message);
         setErrorCode(friendly.code);
         setSyncStatus('error');
+        return false;
       }
-    },
-    [executeBackup, markPendingFlag, onReplaceArchive, persistBackupTimestamp]
-  );
+    })();
+    syncInFlightRef.current = task;
+    try {
+      return await task;
+    } finally {
+      syncInFlightRef.current = null;
+    }
+  }, [persistBackupTimestamp, persistPendingExams]);
+
+  const queueNewExams = useCallback((next: ExamArchiveState, examIds: string[]) => {
+    const activeUser = userRef.current;
+    if (!activeUser || examIds.length === 0) return;
+    archiveRef.current = next;
+    for (const id of examIds) pendingExamIdsRef.current.add(id);
+    persistPendingExams(activeUser.uid);
+    void backupNow();
+  }, [backupNow, persistPendingExams]);
+
+  const readCloudArchive = useCallback(async (activeUser: User, restore = false): Promise<boolean> => {
+    setSyncStatus('hydrating');
+    setErrorMessage(null);
+    setErrorCode(null);
+    try {
+      const cloud = await loadArchiveFromCloud(activeUser.uid);
+      if (userRef.current?.uid !== activeUser.uid) return false;
+      if (cloud.exists && (cloud.archive.exams.length > 0 || cloud.archive.students.length > 0)) {
+        const local = archiveRef.current;
+        const pending = pendingExamIdsRef.current;
+        const localToMerge = restore
+          ? { ...local, exams: local.exams.filter((exam) => pending.has(exam.id)) }
+          : local;
+        const { merged } = mergeLocalAndCloudArchives(localToMerge, cloud.archive);
+        archiveRef.current = merged;
+        onReplaceArchive(merged);
+        if (restore) {
+          onNotify?.({ type: 'info', text: 'Bulut yedeği geri yüklendi.' });
+        }
+      } else if (restore) {
+        onNotify?.({ type: 'info', text: 'Bulut hesabınızda henüz kayıtlı yedek bulunmuyor.' });
+      }
+      if (cloud.lastBackupAt) persistBackupTimestamp(cloud.lastBackupAt);
+      setSyncStatus(pendingExamIdsRef.current.size > 0 ? 'pending' : cloud.exists ? 'synced' : 'idle');
+      return cloud.exists;
+    } catch (error) {
+      if (userRef.current?.uid !== activeUser.uid) return false;
+      const friendly = parseFriendlyError(error);
+      setErrorMessage(friendly.message);
+      setErrorCode(friendly.code);
+      setSyncStatus(navigator.onLine ? 'error' : 'offline');
+      return false;
+    }
+  }, [onNotify, onReplaceArchive, persistBackupTimestamp]);
 
   // Complete any pending mobile/PWA redirect sign-in on startup
   useEffect(() => {
@@ -346,7 +309,7 @@ export function useCloudBackup(
         if (!active || !result?.user) return;
         onNotify?.({
           type: 'info',
-          text: 'Google hesabınız bağlandı. Tüm denemeleriniz otomatik olarak buluta yedeklenecektir.',
+          text: 'Google hesabınız bağlandı. Yeni denemeler eklendikçe buluta yedeklenecektir.',
         });
       })
       .catch((error) => {
@@ -360,109 +323,49 @@ export function useCloudBackup(
     };
   }, [isInIframe, onNotify]);
 
-  // Listen to Firebase Auth state
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+    return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       userRef.current = nextUser;
       setAuthReady(true);
-
-      if (nextUser) {
-        void hydrateForUser(nextUser);
-      } else {
-        hydratedUidRef.current = null;
-        manifestRef.current = null;
+      const uid = nextUser?.uid ?? null;
+      if (hydratedUidRef.current === uid) return;
+      hydratedUidRef.current = uid;
+      pendingExamIdsRef.current = new Set();
+      setHasPendingChanges(false);
+      if (!nextUser) {
+        hydrationRef.current = null;
         setSyncStatus('idle');
+        return;
       }
+
+      try {
+        const ids: unknown = JSON.parse(localStorage.getItem(`${PENDING_EXAMS_KEY}:${uid}`) ?? '[]');
+        if (Array.isArray(ids)) {
+          pendingExamIdsRef.current = new Set(ids.filter((id): id is string => typeof id === 'string'));
+          setHasPendingChanges(pendingExamIdsRef.current.size > 0);
+        }
+      } catch {
+        // Invalid local backup metadata does not affect the archive.
+      }
+      hydrationRef.current = readCloudArchive(nextUser);
     });
-    return unsubscribe;
-  }, [hydrateForUser]);
+  }, [readCloudArchive]);
 
-  // Auto-backup whenever archive changes while authenticated (debounced 1.2s)
   useEffect(() => {
-    if (!authReady || !user) return;
-    if (hydratedUidRef.current !== user.uid) return;
-
-    if (suppressNextAutoSyncRef.current) {
-      suppressNextAutoSyncRef.current = false;
-      return;
-    }
-
-    markPendingFlag(true);
-    setSyncStatus((prev) => (prev === 'offline' ? 'offline' : 'pending'));
-
-    if (debounceTimerRef.current !== null) {
-      window.clearTimeout(debounceTimerRef.current);
-    }
-
-    debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
-      void executeBackup(false, true);
-    }, 1200);
-
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        window.clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, [archive, authReady, user, executeBackup, markPendingFlag]);
-
-  // Program Exit & App Hide Automatic Cloud Backup Listeners
-  useEffect(() => {
-    const flushOnExit = () => {
-      if (!userRef.current) return;
-      if (debounceTimerRef.current !== null) {
-        window.clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      void executeBackup(false, true);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        flushOnExit();
-      }
-    };
-
-    const handlePageHide = () => {
-      flushOnExit();
-    };
-
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!userRef.current) return;
-      if (dirtyRef.current || syncInFlightRef.current) {
-        flushOnExit();
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-
+    const handleOffline = () => setSyncStatus('offline');
     const handleOnline = () => {
-      if (userRef.current) {
-        void executeBackup(false, true);
-      } else {
-        setSyncStatus('idle');
-      }
+      setSyncStatus((status) => status === 'offline'
+        ? pendingExamIdsRef.current.size > 0 ? 'pending' : 'idle'
+        : status);
     };
-
-    const handleOffline = () => {
-      setSyncStatus('offline');
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [executeBackup]);
+  }, []);
 
   const signInWithGoogleRedirect = useCallback(async () => {
     setIsSigningIn(true);
@@ -487,7 +390,7 @@ export function useCloudBackup(
       await signInWithPopup(auth, googleProvider);
       onNotify?.({
         type: 'info',
-        text: 'Google hesabınız bağlandı. Tüm denemeleriniz otomatik olarak buluta yedeklenecektir.',
+        text: 'Google hesabınız bağlandı. Yeni denemeler eklendikçe buluta yedeklenecektir.',
       });
     } catch (error) {
       const code = extractErrorCode(error);
@@ -521,84 +424,24 @@ export function useCloudBackup(
     }
   }, [isInIframe, onNotify]);
 
-  const backupAndSignOut = useCallback(async () => {
-    if (!userRef.current) return;
-    if (debounceTimerRef.current !== null) {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-    const ok = await executeBackup(false, true);
+  const signOutFromCloud = useCallback(async () => {
+    if (!userRef.current || syncInFlightRef.current) return;
     try {
       await signOut(auth);
-      onNotify?.({
-        type: 'info',
-        text: ok
-          ? 'Tüm verileriniz buluta yedeklendi ve güvenli çıkış yapıldı.'
-          : 'Oturum kapatıldı. Yerel verileriniz cihazınızda korunuyor.',
-      });
+      onNotify?.({ type: 'info', text: 'Oturum kapatıldı. Yerel verileriniz cihazınızda korunuyor.' });
     } catch (error) {
       const friendly = parseFriendlyError(error);
       onNotify?.({ type: 'error', text: friendly.message });
     }
-  }, [executeBackup, onNotify]);
-
-  const backupNow = useCallback(
-    async (forceFull = false) => {
-      if (debounceTimerRef.current !== null) {
-        window.clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-      return executeBackup(forceFull, false);
-    },
-    [executeBackup]
-  );
+  }, [onNotify]);
 
   const restoreFromCloud = useCallback(async (): Promise<boolean> => {
     const activeUser = userRef.current;
-    if (!activeUser) return false;
-    setSyncStatus('hydrating');
-    setErrorMessage(null);
-    setErrorCode(null);
-    try {
-      const cloud = await loadArchiveFromCloud(activeUser.uid);
-      manifestRef.current = cloud.manifest;
-      if (
-        !cloud.exists ||
-        (cloud.archive.exams.length === 0 && cloud.archive.students.length === 0)
-      ) {
-        setSyncStatus('synced');
-        onNotify?.({
-          type: 'info',
-          text: 'Bulut hesabınızda henüz kayıtlı yedek bulunmuyor.',
-        });
-        return false;
-      }
-      suppressNextAutoSyncRef.current = true;
-      archiveRef.current = cloud.archive;
-      onReplaceArchive(cloud.archive);
-      if (cloud.lastBackupAt) {
-        persistBackupTimestamp(cloud.lastBackupAt);
-      }
-      if (cloud.removedDuplicates > 0) {
-        await executeBackup(false, true);
-      } else {
-        markPendingFlag(false);
-        setSyncStatus('synced');
-      }
-      onNotify?.({
-        type: 'info',
-        text: `Bulut yedeği geri yüklendi (${cloud.archive.exams.length} deneme, ${cloud.archive.students.length} öğrenci).`,
-      });
-      return true;
-    } catch (error) {
-      const friendly = parseFriendlyError(error);
-      setErrorMessage(friendly.message);
-      setErrorCode(friendly.code);
-      setSyncStatus('error');
-      onNotify?.({ type: 'error', text: friendly.message });
-      return false;
-    }
-  }, [markPendingFlag, onNotify, onReplaceArchive, persistBackupTimestamp]);
+    if (!activeUser || syncInFlightRef.current) return false;
+    const task = readCloudArchive(activeUser, true);
+    hydrationRef.current = task;
+    return task;
+  }, [readCloudArchive]);
 
   return {
     user,
@@ -614,7 +457,8 @@ export function useCloudBackup(
     firebaseProjectId,
     signInWithGoogle,
     signInWithGoogleRedirect,
-    backupAndSignOut,
+    signOutFromCloud,
+    queueNewExams,
     backupNow,
     restoreFromCloud,
   };

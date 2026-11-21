@@ -57,7 +57,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
         type="button"
         onClick={() => void cloud.signInWithGoogle()}
         disabled={cloud.isSigningIn}
-        title="Google ile giriş yaparak tüm denemeleri buluta otomatik yedekleyin"
+        title="Google ile giriş yaparak mevcut yedeğinizi açın ve yeni denemeleri yedekleyin"
         className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
       >
         {cloud.isSigningIn ? (
@@ -100,7 +100,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
           <CloudCheck className="h-3.5 w-3.5 text-emerald-700" />
         )}
         <span className="hidden sm:inline">
-          {isBusy ? 'Yedekleniyor' : isOffline ? 'Çevrimdışı' : 'Bulut Aktif'}
+          {cloud.syncStatus === 'hydrating' ? 'Yedek okunuyor' : isBusy ? 'Yedekleniyor' : isOffline ? 'Çevrimdışı' : isError ? 'Bulut Hatası' : cloud.hasPendingChanges ? 'Yedek Bekliyor' : 'Bulut Aktif'}
         </span>
       </button>
 
@@ -124,14 +124,14 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-500">Yedeklenen kapsam</span>
+              <span className="text-slate-500">Cihazdaki arşiv</span>
               <span className="font-mono font-semibold text-slate-800 tabular-nums">
                 {examCount} deneme · {studentCount} öğrenci
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-slate-500">Çıkışta otomatik yedek</span>
-              <span className="font-semibold text-emerald-700">Açık</span>
+              <span className="text-slate-500">Otomatik yedekleme</span>
+              <span className="font-semibold text-emerald-700">Yeni deneme eklenince</span>
             </div>
           </div>
 
@@ -144,8 +144,8 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
           <div className="mt-3.5 space-y-1.5 border-t border-slate-100 pt-3">
             <button
               type="button"
-              onClick={() => void cloud.backupNow(false)}
-              disabled={isBusy}
+              onClick={() => void cloud.backupNow()}
+              disabled={isBusy || isOffline || !cloud.hasPendingChanges}
               className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
             >
               {isBusy ? (
@@ -153,7 +153,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               ) : (
                 <CloudUpload className="h-3.5 w-3.5" />
               )}
-              Şimdi Buluta Yedekle
+              Bekleyen Denemeleri Yedekle
             </button>
 
             <button
@@ -170,13 +170,13 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               type="button"
               onClick={async () => {
                 setOpen(false);
-                await cloud.backupAndSignOut();
+                await cloud.signOutFromCloud();
               }}
               disabled={isBusy}
               className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
             >
               <LogOut className="h-3.5 w-3.5" />
-              Buluta Yedekle &amp; Çıkış Yap
+              Çıkış Yap
             </button>
           </div>
         </div>

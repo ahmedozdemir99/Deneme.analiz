@@ -63,6 +63,16 @@ export default function App() {
   }, []);
 
   const cloud = useCloudBackup(archive, persistAndSet, setBannerMessage);
+  const { queueNewExams } = cloud;
+
+  const saveNewExams = useCallback((next: ExamArchiveState) => {
+    const previousIds = new Set(archive.exams.map((exam) => exam.id));
+    const newIds = next.exams
+      .filter((exam) => !exam.isSample && !previousIds.has(exam.id))
+      .map((exam) => exam.id);
+    persistAndSet(next);
+    queueNewExams(next, newIds);
+  }, [archive.exams, persistAndSet, queueNewExams]);
 
   const loadBundledSamplePdf = useCallback(async () => {
     setIsLoadingSample(true);
@@ -139,7 +149,7 @@ export default function App() {
         totalNew += res.newStudentsCount;
       }
 
-      persistAndSet(current);
+      saveNewExams(current);
       return {
         totalRecords,
         matchedCount: totalMatched,
@@ -147,7 +157,7 @@ export default function App() {
         examCount: bundles.length,
       };
     },
-    [archive, persistAndSet]
+    [archive, saveNewExams]
   );
 
   const handleDeleteExam = useCallback(
@@ -172,13 +182,13 @@ export default function App() {
   const handleAddManualExam = useCallback(
     (studentId: string, record: StudentExamRecord) => {
       const next = addManualExamToStudent(archive, studentId, record);
-      persistAndSet(next);
+      saveNewExams(next);
       setBannerMessage({
         type: 'info',
         text: `"${record.examName}" denemesi öğrenci arşivine eklendi ve karşılaştırmalar güncellendi.`,
       });
     },
-    [archive, persistAndSet]
+    [archive, saveNewExams]
   );
 
   const handleImportJson = useCallback(

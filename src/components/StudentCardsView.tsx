@@ -14,6 +14,7 @@ import { ExamMeta, SUBJECT_LIST, SUBJECT_MAP, StudentProfile } from '../types/ex
 import {
   formatTrDelta,
   formatTrNumber,
+  getAttendedExams,
   getStudentSummaryForExam,
   StudentProgressSummary,
 } from '../utils/analytics';
@@ -38,13 +39,10 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     [exams]
   );
 
-  const [selectedExamId, setSelectedExamId] = useState<string>(() => {
-    const ordered = [...exams].sort((a, b) => a.examOrder - b.examOrder);
-    return ordered.length > 0 ? ordered[ordered.length - 1].id : 'ALL';
-  });
+  const [selectedExamId, setSelectedExamId] = useState('ALL');
   const prevExamCountRef = useRef<number>(sortedExams.length);
 
-  // Auto-select newly added exam or fall back if selected exam was deleted
+  // Keep the archive view selected while new exams are added.
   useEffect(() => {
     if (sortedExams.length === 0) {
       setSelectedExamId('ALL');
@@ -55,7 +53,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     const grew = sortedExams.length > prevExamCountRef.current;
     prevExamCountRef.current = sortedExams.length;
 
-    if (grew) {
+    if (grew && selectedExamId !== 'ALL') {
       setSelectedExamId(latestId);
       return;
     }
@@ -64,6 +62,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     }
   }, [sortedExams, selectedExamId]);
 
+  const showAverages = selectedExamId === 'ALL';
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClass, setSelectedClass] = useState('ALL');
   const [sortBy, setSortBy] = useState<SortKey>('lgs_desc');
@@ -77,7 +76,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
   const examParticipantCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const s of students) {
-      for (const ex of s.exams) {
+      for (const ex of getAttendedExams(s)) {
         counts.set(ex.examId, (counts.get(ex.examId) ?? 0) + 1);
       }
     }
@@ -118,6 +117,17 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     return { avgLgs, avgNet, count: enriched.length };
   }, [enriched]);
 
+  const averageRanks = useMemo(() => {
+    const rows = [...enriched].sort((a, b) => b.summary.avgLgs - a.summary.avgLgs);
+    const ranks = new Map<string, number>();
+    let rank = 0;
+    rows.forEach(({ student, summary }, index) => {
+      if (index === 0 || summary.avgLgs !== rows[index - 1].summary.avgLgs) rank = index + 1;
+      ranks.set(student.id, rank);
+    });
+    return ranks;
+  }, [enriched]);
+
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLocaleLowerCase('tr');
     const items = enriched.filter(({ student }) => {
@@ -133,13 +143,15 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     items.sort((a, b) => {
       switch (sortBy) {
         case 'lgs_desc':
-          return b.summary.latest.lgsPuan - a.summary.latest.lgsPuan;
+          return showAverages ? b.summary.avgLgs - a.summary.avgLgs : b.summary.latest.lgsPuan - a.summary.latest.lgsPuan;
         case 'net_desc':
-          return b.summary.latest.toplam.net - a.summary.latest.toplam.net;
+          return showAverages ? b.summary.avgNet - a.summary.avgNet : b.summary.latest.toplam.net - a.summary.latest.toplam.net;
         case 'delta_desc':
           return (b.summary.netDeltaPrev ?? -999) - (a.summary.netDeltaPrev ?? -999);
         case 'rank_asc':
-          return (a.summary.latest.dereceler.okul ?? 9999) - (b.summary.latest.dereceler.okul ?? 9999);
+          return showAverages
+            ? (averageRanks.get(a.student.id) ?? 0) - (averageRanks.get(b.student.id) ?? 0)
+            : (a.summary.latest.dereceler.okul ?? 9999) - (b.summary.latest.dereceler.okul ?? 9999);
         case 'name_asc':
           return a.student.name.localeCompare(b.student.name, 'tr');
         default:
@@ -148,7 +160,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     });
 
     return items;
-  }, [enriched, searchQuery, selectedClass, sortBy]);
+  }, [averageRanks, enriched, searchQuery, selectedClass, sortBy, showAverages]);
 
   if (students.length === 0) {
     return (
@@ -199,7 +211,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 </>
               ) : (
                 <>
-                  Tüm Arşiv (Son Sonuç) · {examStats.count} öğrenci · {sortedExams.length} deneme
+                  Tüm Arşiv (Deneme Ortalamaları) · {examStats.count} öğrenci · {sortedExams.length} deneme
                 </>
               )}
             </div>
@@ -250,7 +262,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
-              <span>Tümü (Son Sonuç)</span>
+              <span>Tümü (Deneme Ortalamaları)</span>
               <span
                 className={`font-mono text-[11px] tabular-nums ${
                   selectedExamId === 'ALL' ? 'text-slate-300' : 'text-slate-400'
@@ -287,9 +299,9 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 onChange={(e) => setSortBy(e.target.value as SortKey)}
                 className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:border-blue-600 focus:outline-none"
               >
-                <option value="lgs_desc">LGS Puanı (Yüksek → Düşük)</option>
-                <option value="net_desc">Toplam Net (Yüksek → Düşük)</option>
-                <option value="rank_asc">Okul Sırası (1 → Son)</option>
+                <option value="lgs_desc">{showAverages ? 'Ortalama LGS Puanı' : 'LGS Puanı'} (Yüksek → Düşük)</option>
+                <option value="net_desc">{showAverages ? 'Ortalama Toplam Net' : 'Toplam Net'} (Yüksek → Düşük)</option>
+                <option value="rank_asc">{showAverages ? 'Ortalama LGS Sırası' : 'Okul Sırası'} (1 → Son)</option>
                 <option value="delta_desc">Önceki Denemeye Göre Gelişim (Δ Net)</option>
                 <option value="name_asc">İsim (A → Z)</option>
               </select>
@@ -396,7 +408,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                       </h3>
                       <p className="mt-0.5 text-xs font-medium text-slate-500 tabular-nums">
                         {student.sinif} · No: {student.numara} · {examCount} Deneme
-                        {latest.dereceler.okul ? ` · Okul #${latest.dereceler.okul}` : ''}
+                        {showAverages ? ` · Ort. LGS #${averageRanks.get(student.id)}` : latest.dereceler.okul ? ` · Okul #${latest.dereceler.okul}` : ''}
                       </p>
                     </div>
                     <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600" />
@@ -406,13 +418,13 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                   <div className="mt-4 grid grid-cols-2 gap-4 border-y border-slate-100 py-3">
                     <div>
                       <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                        LGS Puanı
+                        {showAverages ? 'Ortalama LGS Puanı' : 'LGS Puanı'}
                       </span>
                       <div className="mt-0.5 flex items-baseline gap-2">
                         <span className="font-mono text-xl font-bold text-slate-900 tabular-nums">
-                          {formatTrNumber(latest.lgsPuan, 2)}
+                          {formatTrNumber(showAverages ? summary.avgLgs : latest.lgsPuan, 2)}
                         </span>
-                        {lgsDeltaPrev !== undefined ? (
+                        {!showAverages && lgsDeltaPrev !== undefined ? (
                           <span
                             className={`inline-flex items-center font-mono text-xs font-semibold tabular-nums ${
                               lgsDeltaPrev > 0
@@ -431,7 +443,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                             )}
                             {formatTrDelta(lgsDeltaPrev, 1)}
                           </span>
-                        ) : diffSchoolLgs !== undefined ? (
+                        ) : !showAverages && diffSchoolLgs !== undefined ? (
                           <span
                             className={`font-mono text-[11px] font-medium tabular-nums ${
                               diffSchoolLgs >= 0 ? 'text-emerald-700' : 'text-amber-700'
@@ -445,13 +457,13 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
 
                     <div>
                       <span className="block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                        Toplam Net
+                        {showAverages ? 'Ortalama Toplam Net' : 'Toplam Net'}
                       </span>
                       <div className="mt-0.5 flex items-baseline gap-2">
                         <span className="font-mono text-xl font-bold text-blue-700 tabular-nums">
-                          {formatTrNumber(latest.toplam.net, 2)}
+                          {formatTrNumber(showAverages ? summary.avgNet : latest.toplam.net, 2)}
                         </span>
-                        {netDeltaPrev !== undefined && (
+                        {!showAverages && netDeltaPrev !== undefined && (
                           <span
                             className={`inline-flex items-center font-mono text-xs font-semibold tabular-nums ${
                               netDeltaPrev > 0
@@ -547,9 +559,9 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                   </th>
                 ))}
                 <th className="px-3 py-3 text-right">Top. D/Y/B</th>
-                <th className="px-3 py-3 text-right">Top. Net</th>
-                <th className="px-3 py-3 text-right">LGS Puanı</th>
-                <th className="px-3 py-3 text-right">Okul Sıra</th>
+                <th className="px-3 py-3 text-right">{showAverages ? 'Ort. Top. Net' : 'Top. Net'}</th>
+                <th className="px-3 py-3 text-right">{showAverages ? 'Ort. LGS Puanı' : 'LGS Puanı'}</th>
+                <th className="px-3 py-3 text-right">{showAverages ? 'Ort. LGS Sırası' : 'Okul Sıra'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -588,8 +600,8 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                       {latest.toplam.dogru}/{latest.toplam.yanlis}/{latest.toplam.bos}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono font-bold text-blue-700 tabular-nums">
-                      {formatTrNumber(latest.toplam.net, 2)}
-                      {netDeltaPrev !== undefined && (
+                      {formatTrNumber(showAverages ? summary.avgNet : latest.toplam.net, 2)}
+                      {!showAverages && netDeltaPrev !== undefined && (
                         <span
                           className={`ml-1 text-[11px] font-medium ${
                             netDeltaPrev >= 0 ? 'text-emerald-700' : 'text-red-700'
@@ -600,10 +612,10 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 tabular-nums">
-                      {formatTrNumber(latest.lgsPuan, 2)}
+                      {formatTrNumber(showAverages ? summary.avgLgs : latest.lgsPuan, 2)}
                     </td>
                     <td className="px-3 py-2.5 text-right font-mono text-xs text-slate-600 tabular-nums">
-                      {latest.dereceler.okul ? `#${latest.dereceler.okul}` : '—'}
+                      {showAverages ? `#${averageRanks.get(student.id)}` : latest.dereceler.okul ? `#${latest.dereceler.okul}` : '—'}
                     </td>
                   </tr>
                 );

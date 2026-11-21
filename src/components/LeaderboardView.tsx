@@ -157,12 +157,8 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
 
       // Strictly divide by the exact number of exams this student attended
       const attendedCount = attendedExams.length;
-      const avgLgs = round2(
-        attendedExams.reduce((acc, ex) => acc + ex.lgsPuan, 0) / attendedCount
-      );
-      const avgToplamNet = round2(
-        attendedExams.reduce((acc, ex) => acc + ex.toplam.net, 0) / attendedCount
-      );
+      const avgLgs = attendedExams.reduce((sum, exam) => sum + exam.lgsPuan, 0) / attendedCount;
+      const avgToplamNet = attendedExams.reduce((sum, exam) => sum + exam.toplam.net, 0) / attendedCount;
 
       const avgSubjectNets = {} as Record<SubjectKey, number>;
       const subjectDeltaPrev: Partial<Record<SubjectKey, number>> = {};
@@ -170,9 +166,8 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
       const prevExam = attendedCount >= 2 ? attendedExams[attendedCount - 2] : undefined;
 
       for (const s of SUBJECT_LIST) {
-        avgSubjectNets[s.key] = round2(
-          attendedExams.reduce((acc, ex) => acc + ex.subjects[s.key].net, 0) / attendedCount
-        );
+        avgSubjectNets[s.key] =
+          attendedExams.reduce((sum, exam) => sum + exam.subjects[s.key].net, 0) / attendedCount;
         if (prevExam) {
           subjectDeltaPrev[s.key] = round2(
             latestExam.subjects[s.key].net - prevExam.subjects[s.key].net
@@ -202,11 +197,11 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
     raw.sort((a, b) => {
       const aVal = getPrimarySortValue(a);
       const bVal = getPrimarySortValue(b);
-      if (Math.abs(bVal - aVal) > 0.0001) {
+      if (aVal !== bVal) {
         return (bVal - aVal) * dir;
       }
       // Tie-breakers: avgToplamNet then avgLgs
-      if (Math.abs(b.avgToplamNet - a.avgToplamNet) > 0.0001) {
+      if (a.avgToplamNet !== b.avgToplamNet) {
         return (b.avgToplamNet - a.avgToplamNet) * dir;
       }
       return (b.avgLgs - a.avgLgs) * dir;

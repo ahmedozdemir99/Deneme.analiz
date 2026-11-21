@@ -176,11 +176,11 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
                   <strong className="font-semibold text-slate-800">
                     {formatBackupTime(cloud.lastBackupAt)}
                   </strong>{' '}
-                  · Tüm denemeler, öğrenci kartları ve sonuçlar her değişiklikte ve programdan çıkışta otomatik buluta yedeklenir.
+                  · Yeni eklenen denemeler otomatik olarak bulut yedeğine eklenir.
                 </p>
               ) : (
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Google hesabınızla bağlanarak tüm deneme arşivini, öğrenci sonuçlarını ve kazanım verilerini buluta otomatik yedekleyin; her programdan çıkışta verileriniz güvenle senkronize edilsin.
+                  Google hesabınızla bağlanarak mevcut bulut yedeğinizi açabilir ve yeni eklenen denemeleri yedekleyebilirsiniz.
                 </p>
               )}
               {cloud.errorMessage && (
@@ -220,12 +220,12 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
               <>
                 <button
                   type="button"
-                  onClick={() => void cloud.backupNow(false)}
-                  disabled={cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
+                  onClick={() => void cloud.backupNow()}
+                  disabled={!cloud.hasPendingChanges || cloud.syncStatus === 'offline' || cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
                 >
                   <CloudUpload className="h-3.5 w-3.5" />
-                  Şimdi Yedekle
+                  Bekleyen Denemeleri Yedekle
                 </button>
                 <button
                   type="button"
@@ -238,12 +238,12 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void cloud.backupAndSignOut()}
+                  onClick={() => void cloud.signOutFromCloud()}
                   disabled={cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
                 >
                   <LogOut className="h-3.5 w-3.5" />
-                  Yedekle &amp; Çıkış
+                  Çıkış Yap
                 </button>
               </>
             ) : (
