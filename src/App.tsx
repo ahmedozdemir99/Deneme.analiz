@@ -206,7 +206,7 @@ export default function App() {
   const schoolLabel = archive.exams[0]?.schoolName;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
+    <div className="flex min-h-screen flex-col bg-[#F8FAFC] text-[#0F172A]">
       {/* Clean 3-Zone Top Bar */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
@@ -304,7 +304,7 @@ export default function App() {
       </header>
 
       {/* Main Content Container */}
-      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
         {/* Optional Feedback Banner */}
         {bannerMessage && (
           <div
@@ -403,6 +403,12 @@ export default function App() {
           <SchoolWeaknessView state={archive} onSelectStudent={handleSelectStudent} />
         )}
       </main>
+
+      <footer className="mt-auto border-t border-slate-200/80 bg-white/70 py-4 text-center">
+        <p className="font-mono text-xs font-medium tracking-wide text-slate-500">
+          by_ahmedozdemir
+        </p>
+      </footer>
 
       <UploadModal
         isOpen={isUploadOpen}
