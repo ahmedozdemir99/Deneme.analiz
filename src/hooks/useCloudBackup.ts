@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
-import { auth, googleProvider } from '../firebase';
+import {
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  User,
+} from 'firebase/auth';
+import { auth, firebaseProjectId, googleProvider } from '../firebase';
 import { ExamArchiveState } from '../types/exam';
 import {
   CloudSyncManifest,
@@ -12,7 +19,14 @@ import {
 const PENDING_EXIT_BACKUP_KEY = 'lgs_pending_cloud_backup_v1';
 const LAST_CLOUD_BACKUP_AT_KEY = 'lgs_last_cloud_backup_at_v1';
 
-export type CloudSyncStatus = 'idle' | 'hydrating' | 'syncing' | 'synced' | 'pending' | 'error' | 'offline';
+export type CloudSyncStatus =
+  | 'idle'
+  | 'hydrating'
+  | 'syncing'
+  | 'synced'
+  | 'pending'
+  | 'error'
+  | 'offline';
 
 export interface UseCloudBackupResult {
   user: User | null;
@@ -20,41 +34,124 @@ export interface UseCloudBackupResult {
   syncStatus: CloudSyncStatus;
   lastBackupAt: Date | null;
   errorMessage: string | null;
+  errorCode: string | null;
   isSigningIn: boolean;
   hasPendingChanges: boolean;
+  isInIframe: boolean;
+  currentHostname: string;
+  firebaseProjectId: string;
   signInWithGoogle: () => Promise<void>;
+  signInWithGoogleRedirect: () => Promise<void>;
   backupAndSignOut: () => Promise<void>;
   backupNow: (forceFull?: boolean) => Promise<boolean>;
   restoreFromCloud: () => Promise<boolean>;
 }
 
-function parseFriendlyError(error: unknown): string {
+function extractErrorCode(error: unknown): string | null {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length > 0) return code;
+  }
   const raw = error instanceof Error ? error.message : String(error);
+  const match = raw.match(/\((auth\/[a-z0-9-]+|permission-denied|unavailable|resource-exhausted)\)/i);
+  if (match) return match[1];
+  const bareAuth = raw.match(/(auth\/[a-z0-9-]+)/i);
+  if (bareAuth) return bareAuth[1];
+  return null;
+}
+
+function parseFriendlyError(error: unknown): { code: string | null; message: string } {
+  const code = extractErrorCode(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+
   try {
     const parsed = JSON.parse(raw) as { error?: string };
     if (parsed?.error) {
       const lower = parsed.error.toLowerCase();
-      if (lower.includes('quota')) {
-        return 'Bulut günlük ücretsiz kullanım kotası doldu. Kota yarın sıfırlanacaktır; verileriniz cihazınızda saklanıyor.';
+      if (lower.includes('quota') || lower.includes('resource-exhausted')) {
+        return {
+          code: 'quota-exceeded',
+          message:
+            'Bulut veritabanı günlük ücretsiz kullanım kotası doldu. Kota yarın sıfırlanacaktır; verileriniz cihazınızda güvenle saklanıyor.',
+        };
       }
-      if (lower.includes('permission')) {
-        return 'Bulut erişim izni doğrulanamadı. Lütfen Google hesabınızla tekrar giriş yapın.';
+      if (lower.includes('permission') || lower.includes('insufficient')) {
+        return {
+          code: 'permission-denied',
+          message:
+            'Bulut veritabanı erişim izni doğrulanamadı. Google hesabınızla çıkış yapıp yeniden giriş yapmayı deneyin.',
+        };
       }
-      if (lower.includes('offline') || lower.includes('network')) {
-        return 'İnternet bağlantısı yok. Bağlantı kurulduğunda otomatik yedeklenecektir.';
+      if (lower.includes('offline') || lower.includes('network') || lower.includes('unavailable')) {
+        return {
+          code: 'network-offline',
+          message:
+            'İnternet bağlantısı veya bulut sunucusuna erişim kurulamadı. Bağlantı geldiğinde otomatik yedeklenecektir.',
+        };
       }
-      return parsed.error;
+      return { code, message: `Bulut hatası: ${parsed.error}` };
     }
   } catch {
-    // Plain error
+    // Plain Firebase Auth / runtime error
   }
-  if (raw.includes('auth/popup-closed-by-user')) {
-    return 'Google oturum açma penceresi kapatıldı.';
+
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return {
+        code,
+        message: `Bu alan adı (${hostname || 'mevcut site'}) Firebase Yetkili Alan Adları listesinde kayıtlı değil. Firebase Console → Authentication → Settings → Authorized domains bölümüne "${hostname}" adresini eklemeniz gerekir.`,
+      };
+    case 'auth/popup-closed-by-user':
+      return {
+        code,
+        message:
+          'Google giriş penceresi tamamlanmadan kapatıldı. Mobilde/PWA kullanıyorsanız aşağıdaki "Yönlendirme ile Giriş Yap" seçeneğini deneyin.',
+      };
+    case 'auth/cancelled-popup-request':
+      return {
+        code,
+        message: 'Önceki giriş isteği iptal edildi. Lütfen tekrar dokunun.',
+      };
+    case 'auth/popup-blocked':
+      return {
+        code,
+        message:
+          'Tarayıcı Google açılır penceresini engelledi. Açılır pencerelere izin verin veya mobil yönlendirme ile giriş yapın.',
+      };
+    case 'auth/operation-not-supported-in-this-environment':
+    case 'auth/web-storage-unsupported':
+      return {
+        code,
+        message:
+          'Bu tarayıcı ortamı açılır pencere veya çerez depolamasını kısıtlıyor. Normal Chrome sekmesinde açarak veya yönlendirme ile giriş yaparak deneyin.',
+      };
+    case 'auth/network-request-failed':
+      return {
+        code,
+        message:
+          'Google oturum sunucularına bağlanılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.',
+      };
+    case 'auth/operation-not-allowed':
+      return {
+        code,
+        message:
+          'Firebase projesinde Google ile oturum açma sağlayıcısı etkin değil. Firebase Console → Authentication → Sign-in method bölümünden Google seçeneğini etkinleştirin.',
+      };
+    case 'auth/internal-error':
+      return {
+        code,
+        message:
+          'Google giriş penceresi bu cihazda başlatılamadı (auth/internal-error). "Yönlendirme ile Giriş Yap" seçeneğini deneyin veya sayfayı yenileyin.',
+      };
+    default:
+      return {
+        code,
+        message: code
+          ? `Google bulut bağlantısı başarısız (${code}). Lütfen tekrar deneyin.`
+          : `Google bulut bağlantısı başarısız: ${raw.slice(0, 140)}`,
+      };
   }
-  if (raw.includes('auth/popup-blocked')) {
-    return 'Tarayıcı açılır pencereyi engelledi. Lütfen açılır pencerelere izin verip tekrar deneyin.';
-  }
-  return 'Bulut yedekleme sırasında bir hata oluştu. Tekrar deneyebilirsiniz.';
 }
 
 export function useCloudBackup(
@@ -76,8 +173,12 @@ export function useCloudBackup(
     }
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
+
+  const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
 
   const archiveRef = useRef<ExamArchiveState>(archive);
   const userRef = useRef<User | null>(user);
@@ -125,7 +226,6 @@ export function useCloudBackup(
         return false;
       }
 
-      // Deduplicate concurrent sync calls
       if (syncInFlightRef.current) {
         return syncInFlightRef.current;
       }
@@ -133,6 +233,7 @@ export function useCloudBackup(
       const task = (async (): Promise<boolean> => {
         setSyncStatus('syncing');
         setErrorMessage(null);
+        setErrorCode(null);
         try {
           const result = await syncArchiveToCloud(
             activeUser.uid,
@@ -154,11 +255,12 @@ export function useCloudBackup(
           return true;
         } catch (error) {
           const friendly = parseFriendlyError(error);
-          setErrorMessage(friendly);
+          setErrorMessage(friendly.message);
+          setErrorCode(friendly.code);
           setSyncStatus('error');
           markPendingFlag(true);
           if (!silent && onNotify) {
-            onNotify({ type: 'error', text: friendly });
+            onNotify({ type: 'error', text: friendly.message });
           }
           return false;
         } finally {
@@ -179,6 +281,7 @@ export function useCloudBackup(
       hydratedUidRef.current = signedInUser.uid;
       setSyncStatus('hydrating');
       setErrorMessage(null);
+      setErrorCode(null);
 
       try {
         const cloud = await loadArchiveFromCloud(signedInUser.uid);
@@ -214,7 +317,6 @@ export function useCloudBackup(
         }
 
         if (!cloud.exists || localHadUniqueData || hadPendingOfflineBackup) {
-          // Immediately back up unified archive to cloud
           await executeBackup(false, true);
         } else {
           markPendingFlag(false);
@@ -222,12 +324,36 @@ export function useCloudBackup(
         }
       } catch (error) {
         const friendly = parseFriendlyError(error);
-        setErrorMessage(friendly);
+        setErrorMessage(friendly.message);
+        setErrorCode(friendly.code);
         setSyncStatus('error');
       }
     },
     [executeBackup, markPendingFlag, onReplaceArchive, persistBackupTimestamp]
   );
+
+  // Complete any pending mobile/PWA redirect sign-in on startup
+  useEffect(() => {
+    if (isInIframe) return;
+    let active = true;
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!active || !result?.user) return;
+        onNotify?.({
+          type: 'info',
+          text: 'Google hesabınız bağlandı. Tüm denemeleriniz otomatik olarak buluta yedeklenecektir.',
+        });
+      })
+      .catch((error) => {
+        if (!active) return;
+        const friendly = parseFriendlyError(error);
+        setErrorMessage(friendly.message);
+        setErrorCode(friendly.code);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isInIframe, onNotify]);
 
   // Listen to Firebase Auth state
   useEffect(() => {
@@ -242,7 +368,6 @@ export function useCloudBackup(
         hydratedUidRef.current = null;
         manifestRef.current = null;
         setSyncStatus('idle');
-        setErrorMessage(null);
       }
     });
     return unsubscribe;
@@ -277,8 +402,7 @@ export function useCloudBackup(
     };
   }, [archive, authReady, user, executeBackup, markPendingFlag]);
 
-  // CRITICAL: Program Exit & App Hide Automatic Cloud Backup Listeners
-  // Flushes pending changes immediately on tab hide (Android Chrome / PWA exit), pagehide, and beforeunload
+  // Program Exit & App Hide Automatic Cloud Backup Listeners
   useEffect(() => {
     const flushOnExit = () => {
       if (!userRef.current) return;
@@ -286,7 +410,6 @@ export function useCloudBackup(
         window.clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
-      // Always perform a fast diff-sync on exit (zero redundant writes if already clean, immediate commit if anything changed)
       void executeBackup(false, true);
     };
 
@@ -336,9 +459,25 @@ export function useCloudBackup(
     };
   }, [executeBackup]);
 
+  const signInWithGoogleRedirect = useCallback(async () => {
+    setIsSigningIn(true);
+    setErrorMessage(null);
+    setErrorCode(null);
+    try {
+      await signInWithRedirect(auth, googleProvider);
+    } catch (error) {
+      const friendly = parseFriendlyError(error);
+      setErrorMessage(friendly.message);
+      setErrorCode(friendly.code);
+      onNotify?.({ type: 'error', text: friendly.message });
+      setIsSigningIn(false);
+    }
+  }, [onNotify]);
+
   const signInWithGoogle = useCallback(async () => {
     setIsSigningIn(true);
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       await signInWithPopup(auth, googleProvider);
       onNotify?.({
@@ -346,13 +485,36 @@ export function useCloudBackup(
         text: 'Google hesabınız bağlandı. Tüm denemeleriniz otomatik olarak buluta yedeklenecektir.',
       });
     } catch (error) {
+      const code = extractErrorCode(error);
+      // On standalone mobile PWA / direct browser tab (NOT inside an iframe),
+      // automatically fall back to redirect flow when popup is blocked or unsupported.
+      const shouldFallbackToRedirect =
+        !isInIframe &&
+        (code === 'auth/popup-blocked' ||
+          code === 'auth/operation-not-supported-in-this-environment' ||
+          code === 'auth/internal-error');
+
+      if (shouldFallbackToRedirect) {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectError) {
+          const friendly = parseFriendlyError(redirectError);
+          setErrorMessage(friendly.message);
+          setErrorCode(friendly.code);
+          onNotify?.({ type: 'error', text: friendly.message });
+          return;
+        }
+      }
+
       const friendly = parseFriendlyError(error);
-      setErrorMessage(friendly);
-      onNotify?.({ type: 'error', text: friendly });
+      setErrorMessage(friendly.message);
+      setErrorCode(friendly.code);
+      onNotify?.({ type: 'error', text: friendly.message });
     } finally {
       setIsSigningIn(false);
     }
-  }, [onNotify]);
+  }, [isInIframe, onNotify]);
 
   const backupAndSignOut = useCallback(async () => {
     if (!userRef.current) return;
@@ -370,7 +532,8 @@ export function useCloudBackup(
           : 'Oturum kapatıldı. Yerel verileriniz cihazınızda korunuyor.',
       });
     } catch (error) {
-      onNotify?.({ type: 'error', text: parseFriendlyError(error) });
+      const friendly = parseFriendlyError(error);
+      onNotify?.({ type: 'error', text: friendly.message });
     }
   }, [executeBackup, onNotify]);
 
@@ -390,10 +553,14 @@ export function useCloudBackup(
     if (!activeUser) return false;
     setSyncStatus('hydrating');
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       const cloud = await loadArchiveFromCloud(activeUser.uid);
       manifestRef.current = cloud.manifest;
-      if (!cloud.exists || (cloud.archive.exams.length === 0 && cloud.archive.students.length === 0)) {
+      if (
+        !cloud.exists ||
+        (cloud.archive.exams.length === 0 && cloud.archive.students.length === 0)
+      ) {
         setSyncStatus('synced');
         onNotify?.({
           type: 'info',
@@ -416,9 +583,10 @@ export function useCloudBackup(
       return true;
     } catch (error) {
       const friendly = parseFriendlyError(error);
-      setErrorMessage(friendly);
+      setErrorMessage(friendly.message);
+      setErrorCode(friendly.code);
       setSyncStatus('error');
-      onNotify?.({ type: 'error', text: friendly });
+      onNotify?.({ type: 'error', text: friendly.message });
       return false;
     }
   }, [markPendingFlag, onNotify, onReplaceArchive, persistBackupTimestamp]);
@@ -429,9 +597,14 @@ export function useCloudBackup(
     syncStatus,
     lastBackupAt,
     errorMessage,
+    errorCode,
     isSigningIn,
     hasPendingChanges,
+    isInIframe,
+    currentHostname,
+    firebaseProjectId,
     signInWithGoogle,
+    signInWithGoogleRedirect,
     backupAndSignOut,
     backupNow,
     restoreFromCloud,
