@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileUp,
-  GraduationCap,
   Users,
   BarChart3,
   FolderArchive,
@@ -235,7 +234,7 @@ export default function App() {
             className="flex min-w-0 items-center gap-2 text-left sm:gap-2.5"
           >
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white sm:size-9">
-              <GraduationCap className="h-5 w-5" />
+              <img src="/prayer-cap.png" alt="" className="h-auto w-7" />
             </div>
             <div className="leading-tight">
               <div className="font-display text-xs font-extrabold tracking-tight text-slate-900 sm:whitespace-nowrap sm:text-sm">
