@@ -149,6 +149,7 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
                     <th className="px-4 py-2.5">Kazanım</th>
                     <th className="px-3 py-2.5 text-right">Eksik Öğrenci</th>
                     <th className="px-4 py-2.5 text-right">Ort. Başarı</th>
+                    <th className="px-4 py-2.5 text-right" title="Toplam doğru cevap / toplam kazanım sorusu">Doğru Cevap Oranı</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -173,6 +174,9 @@ export const SchoolWeaknessView: React.FC<SchoolWeaknessViewProps> = ({
                         >
                           %{k.avgSuccessPct}
                         </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono font-bold tabular-nums text-blue-700">
+                        %{k.correctAnswerPct}
                       </td>
                     </tr>
                   ))}
