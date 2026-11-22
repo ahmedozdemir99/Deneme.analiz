@@ -176,7 +176,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
                   <strong className="font-semibold text-slate-800">
                     {formatBackupTime(cloud.lastBackupAt)}
                   </strong>{' '}
-                  · Yeni eklenen denemeler otomatik olarak bulut yedeğine eklenir.
+                  · Buluta yükleme ve buluttan geri yükleme yalnızca ilgili düğmeye bastığınızda yapılır.
                 </p>
               ) : (
                 <p className="mt-0.5 text-xs text-slate-500">
