@@ -221,11 +221,11 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
                 <button
                   type="button"
                   onClick={() => void cloud.backupNow()}
-                  disabled={!cloud.hasPendingChanges || cloud.syncStatus === 'offline' || cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
+                  disabled={cloud.syncStatus === 'offline' || cloud.syncStatus === 'syncing' || cloud.syncStatus === 'hydrating'}
                   className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg text-center bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
                 >
                   <CloudUpload className="h-3.5 w-3.5" />
-                  Bekleyen Denemeleri Yedekle
+                  Buluta Şimdi Yedekle
                 </button>
                 <button
                   type="button"
