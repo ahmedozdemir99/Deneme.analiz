@@ -310,6 +310,9 @@ export async function backupFullArchiveToCloud(
     ...student,
     exams: student.exams.filter(exam => examIds.has(exam.examId)),
   })).filter(student => student.exams.length > 0);
+  if (exams.length === 0) {
+    throw new Error('Boş arşiv buluttaki yedeği silemez. Önce gerçek bir deneme yükleyin.');
+  }
   if (exams.length > 500 || students.length > 5000) {
     throw new Error('Bulut arşiv sınırı aşıldı.');
   }
