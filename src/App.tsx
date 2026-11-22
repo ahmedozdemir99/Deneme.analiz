@@ -91,9 +91,7 @@ export default function App() {
 
       setArchive((prev) => {
         // Avoid duplicating the bundled exam if already present with exact same name & sample flag
-        const filteredPrev = prev.exams.some((e) => e.isSample && e.name === bundle.examMeta.name)
-          ? prev
-          : prev;
+        const filteredPrev = prev;
         const alreadyLoaded = filteredPrev.exams.find(
           (e) => e.isSample && e.fileName === BUNDLED_SAMPLE_FILE_NAME
         );
