@@ -394,6 +394,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               const prevNet = compareExam.schoolSubjectNets?.[s.key] ?? 0;
               const curNet = activeExam.schoolSubjectNets?.[s.key] ?? 0;
               const diff = Math.round((curNet - prevNet) * 100) / 100;
+              const totalQuestions = ['turkce', 'matematik', 'fen'].includes(s.key) ? 20 : 10;
+              const successRate = (curNet / totalQuestions) * 100;
               return (
                 <div
                   key={s.key}
@@ -408,6 +410,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                   </div>
                   <div className="mt-1 font-mono text-base font-bold text-slate-900 tabular-nums">
                     {formatTrNumber(curNet, 2)}
+                  </div>
+                  <div className="text-xs font-semibold text-blue-700 tabular-nums" title="Ortalama net / dersin soru sayısı × 100">
+                    {formatTrNumber(successRate, 1)}% · {formatTrNumber(curNet, 2)}/{totalQuestions}
                   </div>
                   <div className="mt-0.5 flex items-center justify-between font-mono text-[11px] tabular-nums">
                     <span className="text-slate-400">Önc: {formatTrNumber(prevNet, 2)}</span>
