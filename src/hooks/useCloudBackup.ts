@@ -218,7 +218,6 @@ export function useCloudBackup(
     }
 
     const task = (async () => {
-      await hydrationRef.current;
       if (userRef.current?.uid !== activeUser.uid) return false;
       setSyncStatus('syncing');
       setErrorMessage(null);
@@ -436,9 +435,7 @@ export function useCloudBackup(
   const restoreFromCloud = useCallback(async (): Promise<boolean> => {
     const activeUser = userRef.current;
     if (!activeUser || syncInFlightRef.current) return false;
-    const task = readCloudArchive(activeUser, true);
-    hydrationRef.current = task;
-    return task;
+    return readCloudArchive(activeUser, true);
   }, [readCloudArchive]);
 
   return {
