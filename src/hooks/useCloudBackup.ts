@@ -210,7 +210,7 @@ export function useCloudBackup(
 
   const backupNow = useCallback(async (): Promise<boolean> => {
     const activeUser = userRef.current;
-    if (!activeUser || pendingExamIdsRef.current.size === 0) return false;
+    if (!activeUser) return false;
     if (syncInFlightRef.current) return syncInFlightRef.current;
     if (!navigator.onLine) {
       setSyncStatus('offline');
@@ -224,6 +224,11 @@ export function useCloudBackup(
       setErrorMessage(null);
       setErrorCode(null);
       try {
+        if (pendingExamIdsRef.current.size === 0) {
+          for (const exam of archiveRef.current.exams) {
+            if (!exam.isSample) pendingExamIdsRef.current.add(exam.id);
+          }
+        }
         while (pendingExamIdsRef.current.size > 0) {
           const examIds = new Set(pendingExamIdsRef.current);
           const timestamp = await appendExamsToCloud(
@@ -262,8 +267,8 @@ export function useCloudBackup(
     archiveRef.current = next;
     for (const id of examIds) pendingExamIdsRef.current.add(id);
     persistPendingExams(activeUser.uid);
-    void backupNow();
-  }, [backupNow, persistPendingExams]);
+    // Manual-only mode: never write to cloud until the user clicks backup.
+  }, [persistPendingExams]);
 
   const readCloudArchive = useCallback(async (activeUser: User, restore = false): Promise<boolean> => {
     setSyncStatus('hydrating');
@@ -309,7 +314,7 @@ export function useCloudBackup(
         if (!active || !result?.user) return;
         onNotify?.({
           type: 'info',
-          text: 'Google hesabınız bağlandı. Yeni denemeler eklendikçe buluta yedeklenecektir.',
+          text: 'Google hesabınız bağlandı. Buluta yalnızca Yedekle düğmesine bastığınızda veri gönderilir.',
         });
       })
       .catch((error) => {
@@ -348,7 +353,9 @@ export function useCloudBackup(
       } catch {
         // Invalid local backup metadata does not affect the archive.
       }
-      hydrationRef.current = readCloudArchive(nextUser);
+      // Manual-only mode: signing in must not read or merge cloud data.
+      hydrationRef.current = null;
+      setSyncStatus(pendingExamIdsRef.current.size > 0 ? 'pending' : 'idle');
     });
   }, [readCloudArchive]);
 
@@ -390,7 +397,7 @@ export function useCloudBackup(
       await signInWithPopup(auth, googleProvider);
       onNotify?.({
         type: 'info',
-        text: 'Google hesabınız bağlandı. Yeni denemeler eklendikçe buluta yedeklenecektir.',
+        text: 'Google hesabınız bağlandı. Buluta yalnızca Yedekle düğmesine bastığınızda veri gönderilir.',
       });
     } catch (error) {
       const code = extractErrorCode(error);
