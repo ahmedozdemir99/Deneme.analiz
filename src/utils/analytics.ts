@@ -482,6 +482,7 @@ export interface SchoolKazanimWeakness {
   text: string;
   studentCount: number;
   avgSuccessPct: number;
+  correctAnswerPct: number;
   strugglingStudentCount: number;
 }
 
@@ -492,7 +493,7 @@ export function buildSchoolKazanimWeaknesses(
 ): SchoolKazanimWeakness[] {
   const map = new Map<
     string,
-    { subject: SubjectKey; text: string; pctSum: number; count: number; struggling: number }
+    { subject: SubjectKey; text: string; pctSum: number; count: number; struggling: number; totalCorrect: number; totalQuestions: number }
   >();
 
   for (const student of state.students) {
@@ -512,8 +513,12 @@ export function buildSchoolKazanimWeaknesses(
         pctSum: 0,
         count: 0,
         struggling: 0,
+        totalCorrect: 0,
+        totalQuestions: 0,
       };
       entry.pctSum += k.basariYuzdesi;
+      entry.totalCorrect += k.dogru;
+      entry.totalQuestions += k.soru;
       entry.count += 1;
       if (k.basariYuzdesi < 50) entry.struggling += 1;
       map.set(key, entry);
@@ -526,6 +531,7 @@ export function buildSchoolKazanimWeaknesses(
       text: e.text,
       studentCount: e.count,
       avgSuccessPct: Math.round(e.pctSum / Math.max(1, e.count)),
+      correctAnswerPct: e.totalQuestions > 0 ? Math.round((e.totalCorrect / e.totalQuestions) * 100) : 0,
       strugglingStudentCount: e.struggling,
     }))
     .sort((a, b) => a.avgSuccessPct - b.avgSuccessPct);
