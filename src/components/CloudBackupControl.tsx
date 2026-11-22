@@ -145,7 +145,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
             <button
               type="button"
               onClick={() => void cloud.backupNow()}
-              disabled={isBusy || isOffline || !cloud.hasPendingChanges}
+              disabled={isBusy || isOffline}
               className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
             >
               {isBusy ? (
@@ -153,7 +153,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
               ) : (
                 <CloudUpload className="h-3.5 w-3.5" />
               )}
-              Bekleyen Denemeleri Yedekle
+              Buluta Şimdi Yedekle
             </button>
 
             <button
