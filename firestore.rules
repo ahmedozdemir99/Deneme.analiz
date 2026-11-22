@@ -208,7 +208,7 @@ service cloud.firestore {
     // =========================================================================
 
     match /users/{userId} {
-      allow get: if isOwner(userId) && isValidId(userId);
+      allow get: if isVerifiedOwner(userId) && isValidId(userId);
       allow list: if false;
 
       allow create: if isVerifiedOwner(userId) &&
@@ -237,12 +237,12 @@ service cloud.firestore {
 
       // Subcollection: Imported LGS Exams
       match /exams/{examId} {
-        allow get: if isOwner(userId) &&
+        allow get: if isVerifiedOwner(userId) &&
           isValidId(userId) &&
           isValidId(examId) &&
           parentArchiveOwnedBy(userId);
 
-        allow list: if isOwner(userId) &&
+        allow list: if isVerifiedOwner(userId) &&
           resource.data.ownerId == request.auth.uid;
 
         allow create: if isVerifiedOwner(userId) &&
