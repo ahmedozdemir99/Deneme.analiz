@@ -10,7 +10,7 @@ import {
 import { auth, firebaseProjectId, googleProvider } from '../firebase';
 import { ExamArchiveState } from '../types/exam';
 import {
-  appendExamsToCloud,
+  backupFullArchiveToCloud,
   loadArchiveFromCloud,
   mergeLocalAndCloudArchives,
 } from '../utils/cloudBackup';
@@ -224,24 +224,15 @@ export function useCloudBackup(
       setErrorMessage(null);
       setErrorCode(null);
       try {
-        if (pendingExamIdsRef.current.size === 0) {
-          for (const exam of archiveRef.current.exams) {
-            if (!exam.isSample) pendingExamIdsRef.current.add(exam.id);
-          }
-        }
-        while (pendingExamIdsRef.current.size > 0) {
-          const examIds = new Set(pendingExamIdsRef.current);
-          const timestamp = await appendExamsToCloud(
-            activeUser.uid,
-            activeUser.displayName || activeUser.email || 'Öğretmen',
-            archiveRef.current,
-            examIds
-          );
-          if (userRef.current?.uid !== activeUser.uid) return false;
-          for (const id of examIds) pendingExamIdsRef.current.delete(id);
-          persistPendingExams(activeUser.uid);
-          if (timestamp) persistBackupTimestamp(timestamp);
-        }
+        const timestamp = await backupFullArchiveToCloud(
+          activeUser.uid,
+          activeUser.displayName || activeUser.email || 'Öğretmen',
+          archiveRef.current
+        );
+        if (userRef.current?.uid !== activeUser.uid) return false;
+        pendingExamIdsRef.current.clear();
+        persistPendingExams(activeUser.uid);
+        persistBackupTimestamp(timestamp);
         setSyncStatus('synced');
         return true;
       } catch (error) {
