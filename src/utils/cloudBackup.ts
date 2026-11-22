@@ -8,6 +8,7 @@ import {
   runTransaction,
   Timestamp,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import {
@@ -287,6 +288,109 @@ export async function loadArchiveFromCloud(uid: string): Promise<CloudLoadResult
     archive: cleanedCloud,
     lastBackupAt,
   };
+}
+
+
+/**
+ * Explicit full snapshot backup. No automatic callers.
+ * Upserts current exams/students, removes deleted cloud entries only after
+ * all current documents are written, and updates the backup timestamp last.
+ */
+export async function backupFullArchiveToCloud(
+  uid: string,
+  displayName: string,
+  archive: ExamArchiveState
+): Promise<Date> {
+  const safeUid = sanitizeFirestoreId(uid, 'u');
+  if (safeUid !== uid) throw new Error('Geçersiz kullanıcı kimliği.');
+  const rootRef = doc(db, 'users', safeUid);
+  const exams = archive.exams.filter(exam => !exam.isSample);
+  const examIds = new Map(exams.map(exam => [exam.id, sanitizeFirestoreId(exam.id, 'exam')]));
+  const students = archive.students.map(student => ({
+    ...student,
+    exams: student.exams.filter(exam => examIds.has(exam.examId)),
+  })).filter(student => student.exams.length > 0);
+  if (exams.length > 500 || students.length > 5000) {
+    throw new Error('Bulut arşiv sınırı aşıldı.');
+  }
+  if (students.some(student => student.exams.length > MAX_EXAMS_PER_STUDENT)) {
+    throw new Error('Bir öğrenci en fazla 100 deneme içerebilir.');
+  }
+  const examKeys = exams.map(exam => examIds.get(exam.id)!);
+  const studentKeys = students.map(student => sanitizeFirestoreId(student.id, 'stu'));
+  if (new Set(examKeys).size !== examKeys.length ||
+      new Set(studentKeys).size !== studentKeys.length) {
+    throw new Error('Bulut belge kimlikleri çakışıyor. Yedekleme iptal edildi.');
+  }
+  const safeDisplayName = clampString(displayName, MAX_DISPLAY_NAME_LEN, 'Öğretmen');
+  try {
+    await runTransaction(db, async transaction => {
+      const root = await transaction.get(rootRef);
+      if (!root.exists()) {
+        transaction.set(rootRef, {
+          ownerId: safeUid, displayName: safeDisplayName,
+          examCount: 0, studentCount: 0,
+          lastBackupAt: serverTimestamp(), createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+    const [existingExams, existingStudents] = await Promise.all([
+      getDocsFromServer(query(collection(db, 'users', safeUid, 'exams'), where('ownerId', '==', safeUid))),
+      getDocsFromServer(query(collection(db, 'users', safeUid, 'students'), where('ownerId', '==', safeUid))),
+    ]);
+    const oldExams = new Map(existingExams.docs.map(d => [d.id, d]));
+    const oldStudents = new Map(existingStudents.docs.map(d => [d.id, d]));
+    const operations: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+    for (const exam of exams) {
+      const id = examIds.get(exam.id)!;
+      const ref = doc(db, 'users', safeUid, 'exams', id);
+      const old = oldExams.get(id);
+      const fields = { ...buildSanitizedExamFields(exam), id, ownerId: safeUid,
+        createdAt: old?.data().createdAt ?? serverTimestamp(),
+        updatedAt: serverTimestamp() };
+      operations.push(batch => batch.set(ref, fields));
+    }
+    for (let i = 0; i < students.length; i++) {
+      const student = students[i];
+      const id = studentKeys[i];
+      const ref = doc(db, 'users', safeUid, 'students', id);
+      const old = oldStudents.get(id);
+      const fields = { ...buildSanitizedStudentFields(student, examIds),
+        id, ownerId: safeUid,
+        createdAt: old?.data().createdAt ?? serverTimestamp(),
+        updatedAt: serverTimestamp() };
+      operations.push(batch => batch.set(ref, fields));
+    }
+    // Write current records first. An interrupted backup never deletes old data.
+    for (let i = 0; i < operations.length; i += 200) {
+      const batch = writeBatch(db);
+      operations.slice(i, i + 200).forEach(op => op(batch));
+      await batch.commit();
+    }
+    const stale = [
+      ...existingExams.docs.filter(d => !examKeys.includes(d.id)),
+      ...existingStudents.docs.filter(d => !studentKeys.includes(d.id)),
+    ];
+    for (let i = 0; i < stale.length; i += 200) {
+      const batch = writeBatch(db);
+      stale.slice(i, i + 200).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+    await runTransaction(db, async transaction => {
+      const root = await transaction.get(rootRef);
+      if (!root.exists()) throw new Error('Bulut arşiv kökü bulunamadı.');
+      transaction.update(rootRef, {
+        displayName: safeDisplayName, examCount: exams.length,
+        studentCount: students.length,
+        lastBackupAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      });
+    });
+    return new Date();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, rootRef.path);
+    throw error;
+  }
 }
 
 /** Append newly added exams and results while preserving every existing cloud record. */
