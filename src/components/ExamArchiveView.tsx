@@ -168,7 +168,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Bulut Yedekleme &amp; Çıkışta Otomatik Senkronizasyon
+                Bulut Yedekleme (Yalnızca Manuel)
               </h2>
               {cloud.user ? (
                 <p className="mt-0.5 text-xs text-slate-500 tabular-nums">
