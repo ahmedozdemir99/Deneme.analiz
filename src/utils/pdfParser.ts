@@ -1,5 +1,5 @@
 import { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
-import { branchColumn, buildBranchResults, validBranchColumns, type BranchColumn, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
+import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
@@ -1153,19 +1153,19 @@ function parseSonucBelgesiPage(tokens: TextToken[], pageWidth: number): ParsedSo
 
 function findBranchTable(lines: LineCluster[], subject: SubjectKey) {
   const isMetricHeader = (line: LineCluster | undefined) => line && line.tokens.length >= 2 && line.tokens.every(({ str }) => {
-    const column = branchColumn(str, subject);
+    const column = branchQuestionColumn(str) ?? branchColumn(str, subject);
     return column && column !== 'name' && column !== 'number' && column !== 'classroom';
   });
-  let upperHeader: { columns: Map<BranchColumn, number>; subjects: Set<SubjectKey> } | undefined;
+  let upperHeader: { columns: Map<BranchTableColumn, number>; subjects: Set<SubjectKey> } | undefined;
   for (const [index, line] of lines.entries()) {
-    const columns = new Map<BranchColumn, number>();
+    const columns = new Map<BranchTableColumn, number>();
     const explicit = new Set<SubjectKey>();
     for (let i = 0; i < line.tokens.length; i++) {
       const first = line.tokens[i];
       for (let size = Math.min(5, line.tokens.length - i); size >= 1; size--) {
         const segment = line.tokens.slice(i, i + size);
         const label = segment.map(({ str }) => str).join(' ');
-        const channel = branchColumn(label, subject);
+        const channel = branchQuestionColumn(label) ?? branchColumn(label, subject);
         if (!channel) continue;
         // Keep separate header cells from being combined just because they are on the same line.
         if (segment.some((cell, pos) => pos > 0 && cell.x - segment[pos - 1].x - segment[pos - 1].width > 20)) continue;
@@ -1199,10 +1199,10 @@ function findBranchTable(lines: LineCluster[], subject: SubjectKey) {
   return undefined;
 }
 
-function readBranchTableRows(lines: LineCluster[], columns: Map<BranchColumn, number>): BranchSourceRow[] {
+function readBranchTableRows(lines: LineCluster[], columns: Map<BranchTableColumn, number>): BranchSourceRow[] {
   const anchors = [...columns.entries()].sort((a, b) => a[1] - b[1]);
   return lines.map((line) => {
-    const values = new Map<BranchColumn, string>();
+    const values = new Map<BranchTableColumn, string>();
     for (const token of line.tokens) {
       const index = anchors.findIndex(([, x], pos) => {
         const next = anchors[pos + 1];
@@ -1218,6 +1218,7 @@ function readBranchTableRows(lines: LineCluster[], columns: Map<BranchColumn, nu
     return {
       ...Object.fromEntries(values),
       name: values.get('name') ?? '',
+      items: readBranchItems(values),
     };
   });
 }
@@ -1227,7 +1228,7 @@ export async function parseBranchPdf(source: ArrayBuffer, options: BranchOptions
   try {
     const pdf = await task.promise;
     const rows: BranchSourceRow[] = [];
-    let tableColumns: Map<BranchColumn, number> | undefined;
+    let tableColumns: Map<BranchTableColumn, number> | undefined;
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1 });

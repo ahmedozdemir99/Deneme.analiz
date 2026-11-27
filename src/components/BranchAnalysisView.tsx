@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Download, FileUp } from 'lucide-react';
 import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
 import { downloadBranchTemplate, parseBranchExcel, type BranchResult } from '../utils/branchAnalysis';
-import { formatTrNumber } from '../utils/analytics';
+import { BranchReport } from './BranchReport';
 import { parseBranchPdf } from '../utils/pdfParser';
 
 interface BranchExam {
@@ -42,34 +42,15 @@ export function BranchAnalysisView() {
     [exam],
   );
   const results = useMemo(
-    () => (exam?.results ?? []).filter((row) => !classroom || row.classroom === classroom)
-      .sort((a, b) => b.net - a.net || a.name.localeCompare(b.name, 'tr')),
+    () => classroom ? exam?.results.filter((row) => row.classroom === classroom) ?? [] : exam?.results ?? [],
     [exam, classroom],
   );
-  const averageNet = results.length ? results.reduce((sum, row) => sum + row.net, 0) / results.length : 0;
-  const outcomes = useMemo(() => {
-    const byTopic = new Map<string, { questions: number; correct: number; students: number }>();
-    for (const row of results) {
-      const seen = new Set<string>();
-      for (const item of row.outcomes ?? []) {
-        const topic = item.text.trim();
-        if (!topic) continue;
-        const summary = byTopic.get(topic) ?? { questions: 0, correct: 0, students: 0 };
-        summary.questions += item.soru;
-        summary.correct += item.dogru;
-        if (!seen.has(topic)) summary.students++;
-        seen.add(topic);
-        byTopic.set(topic, summary);
-      }
-    }
-    return [...byTopic];
-  }, [results]);
 
   return (
     <div className="space-y-5">
       <section className={panel}>
         <h1 className="text-xl font-bold text-slate-900">Branş Denemesi Analizi</h1>
-        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı PDF sonuç listesini veya Excel dosyasını yükleyin. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
+        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı PDF sonuç listesini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
         <form className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
           if (!file || busy) return;
@@ -128,7 +109,7 @@ export function BranchAnalysisView() {
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-60">
               <FileUp aria-hidden="true" className="size-4" /> {busy ? 'Okunuyor…' : 'Analiz et ve kaydet'}
             </button>
-            <button type="button" onClick={downloadBranchTemplate} className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-blue-700 underline">
+            <button type="button" onClick={() => downloadBranchTemplate(questionCount)} className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-blue-700 underline">
               <Download aria-hidden="true" className="size-4" /> Branş Excel şablonu
             </button>
           </div>
@@ -153,31 +134,8 @@ export function BranchAnalysisView() {
             </select>
           </label>}
         </div>
-        <h2 className="mt-4 font-semibold text-slate-900">{SUBJECT_MAP[exam.subject].label} · {results.length} öğrenci · Ortalama {formatTrNumber(averageNet)} net</h2>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left text-sm" aria-label="Branş denemesi öğrenci sonuçları">
-            <thead className="bg-slate-100 text-slate-700">
-              <tr>{['Öğrenci', 'Sınıf', 'Soru', 'Doğru', 'Yanlış', 'Boş', 'Net'].map((label) =>
-                <th key={label} scope="col" className="whitespace-nowrap px-3 py-2">{label}</th>)}</tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {results.map((row) => <tr key={row.number + ':' + row.name + ':' + row.classroom}>
-                <th scope="row" className="whitespace-nowrap px-3 py-2 font-medium">{row.name}</th>
-                {[row.classroom || '—', row.questionCount, row.correct, row.incorrect, row.blank, formatTrNumber(row.net)]
-                  .map((value, index) => <td key={index} className="px-3 py-2 tabular-nums">{value ?? '—'}</td>)}
-              </tr>)}
-            </tbody>
-          </table>
-        </div>
-        {outcomes.length > 0 && <details className="mt-4 rounded-lg border border-slate-200 p-3">
-          <summary className="cursor-pointer text-sm font-semibold">Kazanım sonuçları</summary>
-          <ul className="mt-2 divide-y divide-slate-100 text-sm">
-            {outcomes.map(([topic, result]) => <li key={topic} className="flex flex-wrap justify-between gap-2 py-2">
-              <span>{topic}</span>
-              <span className="tabular-nums text-slate-600">{result.correct}/{result.questions} doğru · {result.students} öğrenci</span>
-            </li>)}
-          </ul>
-        </details>}
+        <h2 className="mt-4 font-semibold text-slate-900">{SUBJECT_MAP[exam.subject].label} · {exam.name}</h2>
+        <BranchReport key={exam.id} allRows={exam.results} rows={results} />
       </section>}
     </div>
   );

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import * as XLSX from 'xlsx';
 import { SUBJECT_LIST } from '../src/types/exam';
+import { branchLevel, rankBranchStudents, summarizeBranchItems, summarizeBranchOutcomes } from '../src/utils/branchStatistics';
 import { parseBranchExcel } from '../src/utils/branchAnalysis';
 import { parseExamExcel } from '../src/utils/excelHandler';
 
@@ -65,6 +66,47 @@ test('branch spreadsheets accept a single subject and keep net-only counts unkno
   assert.equal(netOnly.blank, null);
 });
 
+test('branch item results support rank ties, difficulty, discrimination and imported outcomes', () => {
+  const headers = ['Öğrenci No', 'Adı Soyadı', 'Sınıf', 'S1', 'S2', 'Soru 3', '4. Soru'];
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
+    headers,
+    [1, 'Örnek Öğrenci A', '8A', 'D', 'D', 'D', 'D'],
+    [2, 'Örnek Öğrenci B', '8A', 'D', 'D', 'Y', 'B'],
+    [3, 'Örnek Öğrenci C', '8B', 'Y', 'Y', 'D', 'B'],
+    [4, 'Örnek Öğrenci D', '8B', 'B', 'Y', 'B', 'B'],
+  ]), 'Sonuçlar');
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([
+    ['Soru', 'Kazanım'], [1, 'Sayılar'], [2, 'Sayılar'], [3, 'Geometri'],
+  ]), 'Kazanımlar');
+  const options = { subject: 'matematik', questionCount: 4 } as const;
+  const results = parseBranchExcel(XLSX.write(book, { type: 'array', bookType: 'xlsx' }), options);
+  assert.deepEqual(results.map(({ net }) => net), [4, 1.67, 0.33, -0.33]);
+  assert.deepEqual(summarizeBranchOutcomes(results).map(({ title, rate, students }) => [title, rate, students]),
+    [['Geometri', 0.5, 4], ['Sayılar', 0.5, 4]]);
+  const items = summarizeBranchItems(results);
+  assert.deepEqual(items.map(({ count, correct, incorrect, blank }) => [count, correct, incorrect, blank]),
+    [[4, 2, 1, 1], [4, 2, 2, 0], [4, 2, 1, 1], [4, 1, 0, 3]]);
+  assert.equal(items[0].difficulty, 0.5);
+  assert.ok((items[0].discrimination ?? -1) > 0);
+  assert.equal(summarizeBranchItems(results.slice(0, 3))[0].discrimination, null);
+  assert.equal(summarizeBranchItems(results.map((row) => ({ ...row, items: undefined }))).length, 0);
+  const incomplete = parseBranchExcel(workbook([
+    ['Öğrenci No', 'Adı Soyadı', 'Net', 'S1', 'S2'],
+    [5, 'Örnek Öğrenci E', 2, 'D', ''],
+  ]), options);
+  assert.deepEqual(incomplete[0].items, { 1: 'D' });
+  assert.equal(incomplete[0].blank, null);
+  assert.equal(summarizeBranchItems(incomplete)[0].count, 1);
+  assert.throws(() => parseBranchExcel(workbook([
+    ['Adı Soyadı', 'Doğru', 'Yanlış', 'S1', 'S2', 'S3', 'S4'],
+    ['Örnek Öğrenci', 2, 2, 'D', 'D', 'D', 'D'],
+  ]), options), /uyuşmuyor/);
+  const tied = [{ ...results[0], net: 2 }, { ...results[1], net: 2 }, { ...results[2], net: 2 }, results[3]];
+  assert.deepEqual(rankBranchStudents(tied).map(({ rank }) => rank), [1, 1, 1, 4]);
+  assert.deepEqual([39.9, 40, 60, 80].map((value) => branchLevel(value).id), ['needs-work', 'medium', 'good', 'very-good']);
+});
+
 function textPdf(rows: string[][]) {
   const columns = [32, 90, 255, 315, 375, 430, 485, 540];
   const stream = rows.flatMap((row, index) => row.map((cell, column) =>
@@ -113,6 +155,12 @@ test('text PDF branch tables import from one or two header rows', async () => {
       const parsed = await parseBranchPdf(textPdf([...headers, row]), options);
       assert.deepEqual(parsed.map(({ number, net, blank }) => [number, net, blank]), [['42', 14, 2]]);
     }
+    const questionData = await parseBranchPdf(textPdf([
+      ['Ogrenci No', 'Adi Soyadi', 'Sinif', 'S1', 'S2', 'S3', 'S4'],
+      ['42', 'Ornek Ogrenci', '8-A', 'D', 'Y', 'B', 'D'],
+    ]), { ...options, questionCount: 4 });
+    assert.deepEqual(questionData[0].items, { 1: 'D', 2: 'Y', 3: 'B', 4: 'D' });
+    assert.equal(questionData[0].net, 1.67);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
