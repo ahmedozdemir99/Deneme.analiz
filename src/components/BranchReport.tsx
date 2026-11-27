@@ -6,6 +6,7 @@ import {
   summarizeBranchScores,
 } from '../utils/branchStatistics';
 import { normalizeTurkish } from '../utils/examLabels';
+import { BranchAnswerGaps } from './BranchAnswerGaps';
 
 const tabs = ['Sıralama', 'Eksik analizi', 'Madde analizi'] as const;
 const levelColors = {
@@ -131,7 +132,8 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
         </section>}
       </div>}
 
-      {tab === 'Eksik analizi' && <div className="space-y-3">
+      {tab === 'Eksik analizi' && <div className="space-y-4">
+        <BranchAnswerGaps rows={rows} />
         <h3 className="font-bold">Destek önceliği</h3>
         {support.length ? <ResultsTable label="Destek önceliği olan öğrenciler" headings={['Öğrenci', 'Sınıf', 'Net', 'Net / soru']}>
           {support.map(({ row }) => <tr key={`${row.number}:${row.name}:${row.classroom}`}>
@@ -140,20 +142,21 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
               <td className={cell} key={index}>{value}</td>)}
           </tr>)}
         </ResultsTable> : <p className={muted}>Seçili grupta net oranı %40’ın altında öğrenci yok.</p>}
-        <h3 className="font-bold">Kazanım eksikleri</h3>
-        {outcomes.length > 0 ? <>
+        {outcomes.length > 0 && <>
+          <h3 className="font-bold">Kazanım eksikleri</h3>
           <p className={muted}>Kazanımlar en düşük başarıdan en yükseğe sıralanır. Her satır, dosyada o kazanım için sonucu bulunan öğrencileri kapsar.</p>
           <OutcomesTable rows={outcomes} />
-        </> : <p className={muted}>Kazanım analizi için öğrenci karnesinde kazanım sonuçları veya Excel’de soru sonuçlarıyla birlikte doldurulmuş Kazanımlar sayfası gerekir.</p>}
-        <h3 className="font-bold">Tekrar önceliği olan sorular</h3>
-        {priority.length > 0 ? <ul className="flex flex-wrap gap-2">
-          {priority.map((item) => <li key={item.question} className="rounded-full bg-rose-100 px-3 py-1.5 text-sm text-rose-900">
-            {item.question}. soru · {percent(item.difficulty)} doğru · {item.count} kayıt
-          </li>)}
-        </ul> : <p className={muted}>{items.length ? 'Doğru oranı %60’ın altında soru yok.' : 'Zorlanılan soruları belirlemek için soru bazında sonuç gerekli.'}</p>}
-        <p className={muted}>{summary.known > 0
-          ? `Doğru, yanlış ve boş ortalamaları, bu üç değeri bilinen ${summary.known} öğrenci üzerinden hesaplandı.`
-          : 'Yüklenen kayıtlarda doğru, yanlış ve boş dağılımı bulunmuyor.'}</p>
+        </>}
+        {items.length > 0 && <>
+          <h3 className="font-bold">Tekrar önceliği olan sorular</h3>
+          {priority.length > 0 ? <ul className="flex flex-wrap gap-2">
+            {priority.map((item) => <li key={item.question} className="rounded-full bg-rose-100 px-3 py-1.5 text-sm text-rose-900">
+              {item.question}. soru · {percent(item.difficulty)} doğru · {item.count} kayıt
+            </li>)}
+          </ul> : <p className={muted}>Doğru oranı %60’ın altında soru yok.</p>}
+        </>}
+        {!outcomes.length && !items.length && <p className={muted}>Genel analiz dosyadaki toplamları kullanır. Hangi soru veya kazanımda zorlanıldığını görmek için soru sütunları veya kazanım sonuçları gerekir.</p>}
+        {!outcomes.length && items.length > 0 && <p className={muted}>Soruları kazanımlara göre gruplamak için Excel’de Kazanımlar sayfasını doldurabilirsin.</p>}
       </div>}
 
       {tab === 'Madde analizi' && <div className="space-y-3">
@@ -171,7 +174,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
                 number(item.discrimination), item.discriminationCount].map((value, index) => <td key={index} className={cell}>{value}</td>)}
             </tr>)}
           </ResultsTable>
-        </> : <p className={muted}>Madde analizi için her öğrencinin S1, S2, … sütunlarında D (doğru), Y (yanlış) veya B (boş) bilgisi olmalıdır. Excel ya da metin tabanlı PDF kullanabilirsin.</p>}
+        </> : <p className={muted}>Soru bazında sonuç bulunamadı. Toplam doğru, yanlış ve boş grafikleri Eksik analizi sekmesinde. Madde analizi için S1, S2, … sütunlarında D, Y veya B bilgisi gerekir.</p>}
       </div>}
     </div>
   );
