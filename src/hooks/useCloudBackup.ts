@@ -9,11 +9,15 @@ import {
 } from 'firebase/auth';
 import { auth, firebaseProjectId, googleProvider } from '../firebase';
 import { ExamArchiveState } from '../types/exam';
+import { EMPTY_ARCHIVE_STATE, loadArchiveState } from '../utils/storage';
 import {
   backupFullArchiveToCloud,
   loadArchiveFromCloud,
   mergeLocalAndCloudArchives,
 } from '../utils/cloudBackup';
+
+import { backupBranchesToCloud, loadBranchesFromCloud } from '../utils/branchCloudBackup';
+import { mergeBranchBackup, readBranchExams, rememberBranchCloudRevision, updateBranchExams } from '../utils/branchArchive';
 
 const PENDING_EXAMS_KEY = 'lgs_pending_cloud_exams_v2';
 const LAST_CLOUD_BACKUP_AT_KEY = 'lgs_last_cloud_backup_at_v1';
@@ -30,6 +34,7 @@ export type CloudSyncStatus =
 export interface UseCloudBackupResult {
   user: User | null;
   authReady: boolean;
+  branchRefresh: number;
   syncStatus: CloudSyncStatus;
   lastBackupAt: Date | null;
   errorMessage: string | null;
@@ -157,21 +162,16 @@ function parseFriendlyError(error: unknown): { code: string | null; message: str
 export function useCloudBackup(
   archive: ExamArchiveState,
   onReplaceArchive: (next: ExamArchiveState) => void,
+  onAccountChange: (uid: string | undefined, archive: ExamArchiveState) => void,
   onNotify?: (msg: { type: 'info' | 'error'; text: string }) => void
 ): UseCloudBackupResult {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [branchRefresh, setBranchRefresh] = useState(0);
   const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>(() =>
     typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'idle'
   );
-  const [lastBackupAt, setLastBackupAt] = useState<Date | null>(() => {
-    try {
-      const saved = localStorage.getItem(LAST_CLOUD_BACKUP_AT_KEY);
-      return saved ? new Date(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [lastBackupAt, setLastBackupAt] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -202,7 +202,8 @@ export function useCloudBackup(
   const persistBackupTimestamp = useCallback((date: Date) => {
     setLastBackupAt(date);
     try {
-      localStorage.setItem(LAST_CLOUD_BACKUP_AT_KEY, date.toISOString());
+      const uid = userRef.current?.uid;
+      if (uid) localStorage.setItem(`${LAST_CLOUD_BACKUP_AT_KEY}:${uid}`, date.toISOString());
     } catch {
       // ignore
     }
@@ -212,32 +213,47 @@ export function useCloudBackup(
     const activeUser = userRef.current;
     if (!activeUser) return false;
     if (syncInFlightRef.current) return syncInFlightRef.current;
+    if (hydrationRef.current) return false;
     if (!navigator.onLine) {
       setSyncStatus('offline');
       return false;
     }
 
     const task = (async () => {
-      if (userRef.current?.uid !== activeUser.uid) return false;
+      if (userRef.current?.uid !== activeUser.uid || auth.currentUser?.uid !== activeUser.uid) return false;
       setSyncStatus('syncing');
       setErrorMessage(null);
       setErrorCode(null);
+      let branchSaved = false;
       try {
-        const timestamp = await backupFullArchiveToCloud(
-          activeUser.uid,
-          activeUser.displayName || activeUser.email || 'Öğretmen',
-          archiveRef.current
-        );
-        if (userRef.current?.uid !== activeUser.uid) return false;
-        pendingExamIdsRef.current.clear();
-        persistPendingExams(activeUser.uid);
+        const uid = activeUser.uid;
+        const local = archiveRef.current;
+        const branches = readBranchExams(uid);
+        const hasFullExams = local.exams.some((exam) => !exam.isSample);
+        if (!hasFullExams && !branches.length) throw new Error('Bu cihazda yedeklenecek deneme yok.');
+        let timestamp = new Date();
+        if (branches.length) {
+          const revision = await backupBranchesToCloud(uid, branches);
+          branchSaved = true;
+          rememberBranchCloudRevision(uid, revision);
+        }
+        if (userRef.current?.uid !== uid) return false;
+        if (hasFullExams) {
+          timestamp = await backupFullArchiveToCloud(uid, activeUser.displayName || activeUser.email || 'Öğretmen', local);
+          if (userRef.current?.uid !== uid) return false;
+          pendingExamIdsRef.current.clear();
+          persistPendingExams(uid);
+        }
         persistBackupTimestamp(timestamp);
         setSyncStatus('synced');
+        if (branchSaved) onNotify?.({ type: 'info', text: hasFullExams
+          ? 'Tam LGS ve branş arşivleri buluta yedeklendi.'
+          : 'Branş arşivi buluta yedeklendi.' });
         return true;
       } catch (error) {
         if (userRef.current?.uid !== activeUser.uid) return false;
         const friendly = parseFriendlyError(error);
-        setErrorMessage(friendly.message);
+        setErrorMessage(branchSaved ? `Branş yedeği buluta alındı. ${friendly.message}` : friendly.message);
         setErrorCode(friendly.code);
         setSyncStatus('error');
         return false;
@@ -249,7 +265,7 @@ export function useCloudBackup(
     } finally {
       syncInFlightRef.current = null;
     }
-  }, [persistBackupTimestamp, persistPendingExams]);
+  }, [onNotify, persistBackupTimestamp, persistPendingExams]);
 
   const queueNewExams = useCallback((next: ExamArchiveState, examIds: string[]) => {
     const activeUser = userRef.current;
@@ -265,9 +281,13 @@ export function useCloudBackup(
     setErrorMessage(null);
     setErrorCode(null);
     try {
-      const cloud = await loadArchiveFromCloud(activeUser.uid);
-      if (userRef.current?.uid !== activeUser.uid) return false;
-      if (cloud.exists && (cloud.archive.exams.length > 0 || cloud.archive.students.length > 0)) {
+      const uid = activeUser.uid;
+      const [full, branch] = await Promise.allSettled([loadArchiveFromCloud(uid), loadBranchesFromCloud(uid)]);
+      if (userRef.current?.uid !== uid || auth.currentUser?.uid !== uid) return false;
+      const cloud = full.status === 'fulfilled' ? full.value : null;
+      const branchBackup = branch.status === 'fulfilled' ? branch.value : null;
+      const restored: string[] = [];
+      if (cloud?.exists && (cloud.archive.exams.length > 0 || cloud.archive.students.length > 0)) {
         const local = archiveRef.current;
         const pending = pendingExamIdsRef.current;
         const localToMerge = restore
@@ -276,15 +296,27 @@ export function useCloudBackup(
         const { merged } = mergeLocalAndCloudArchives(localToMerge, cloud.archive);
         archiveRef.current = merged;
         onReplaceArchive(merged);
-        if (restore) {
-          onNotify?.({ type: 'info', text: 'Bulut yedeği geri yüklendi.' });
-        }
-      } else if (restore) {
-        onNotify?.({ type: 'info', text: 'Bulut hesabınızda henüz kayıtlı yedek bulunmuyor.' });
+        restored.push('Tam LGS arşivi');
       }
-      if (cloud.lastBackupAt) persistBackupTimestamp(cloud.lastBackupAt);
-      setSyncStatus(pendingExamIdsRef.current.size > 0 ? 'pending' : cloud.exists ? 'synced' : 'idle');
-      return cloud.exists;
+      if (branchBackup) {
+        updateBranchExams((current) => mergeBranchBackup(current, branchBackup.exams).exams, uid);
+        rememberBranchCloudRevision(uid, branchBackup.revision);
+        setBranchRefresh((value) => value + 1);
+        restored.push('branş arşivi');
+      }
+      const failure = full.status === 'rejected' ? full : branch.status === 'rejected' ? branch : null;
+      if (failure) {
+        if (restored.length) onNotify?.({ type: 'info', text: `${restored.join(' ve ')} geri yüklendi.` });
+        throw failure.reason;
+      }
+      if (restore) onNotify?.({ type: 'info', text: restored.length
+        ? `${restored.join(' ve ')} geri yüklendi.`
+        : 'Bulut hesabınızda henüz kayıtlı yedek bulunmuyor.' });
+      const dates = [cloud?.lastBackupAt, branchBackup?.backupDate].filter((date): date is Date => Boolean(date));
+      if (dates.length) persistBackupTimestamp(new Date(Math.max(...dates.map((date) => date.getTime()))));
+      const exists = Boolean(cloud?.exists || branchBackup);
+      setSyncStatus(pendingExamIdsRef.current.size > 0 ? 'pending' : exists ? 'synced' : 'idle');
+      return exists;
     } catch (error) {
       if (userRef.current?.uid !== activeUser.uid) return false;
       const friendly = parseFriendlyError(error);
@@ -326,6 +358,12 @@ export function useCloudBackup(
       const uid = nextUser?.uid ?? null;
       if (hydratedUidRef.current === uid) return;
       hydratedUidRef.current = uid;
+      const localArchive = loadArchiveState(uid ?? undefined) ?? EMPTY_ARCHIVE_STATE;
+      archiveRef.current = localArchive;
+      onAccountChange(uid ?? undefined, localArchive);
+      setLastBackupAt(null);
+      setErrorMessage(null);
+      setErrorCode(null);
       pendingExamIdsRef.current = new Set();
       setHasPendingChanges(false);
       if (!nextUser) {
@@ -335,6 +373,8 @@ export function useCloudBackup(
       }
 
       try {
+        const timestamp = localStorage.getItem(`${LAST_CLOUD_BACKUP_AT_KEY}:${uid}`);
+        if (timestamp) setLastBackupAt(new Date(timestamp));
         const ids: unknown = JSON.parse(localStorage.getItem(`${PENDING_EXAMS_KEY}:${uid}`) ?? '[]');
         if (Array.isArray(ids)) {
           pendingExamIdsRef.current = new Set(ids.filter((id): id is string => typeof id === 'string'));
@@ -347,7 +387,7 @@ export function useCloudBackup(
       hydrationRef.current = null;
       setSyncStatus(pendingExamIdsRef.current.size > 0 ? 'pending' : 'idle');
     });
-  }, [readCloudArchive]);
+  }, [onAccountChange]);
 
   useEffect(() => {
     const handleOffline = () => setSyncStatus('offline');
@@ -435,12 +475,20 @@ export function useCloudBackup(
   const restoreFromCloud = useCallback(async (): Promise<boolean> => {
     const activeUser = userRef.current;
     if (!activeUser || syncInFlightRef.current) return false;
-    return readCloudArchive(activeUser, true);
+    if (hydrationRef.current) return hydrationRef.current;
+    const task = readCloudArchive(activeUser, true);
+    hydrationRef.current = task;
+    try {
+      return await task;
+    } finally {
+      if (hydrationRef.current === task) hydrationRef.current = null;
+    }
   }, [readCloudArchive]);
 
   return {
     user,
     authReady,
+    branchRefresh,
     syncStatus,
     lastBackupAt,
     errorMessage,

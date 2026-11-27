@@ -5,7 +5,7 @@ import { branchStudentId, type BranchExam } from '../utils/branchHistory';
 type Pending = { type: 'exam' } | { type: 'student'; id: string; name: string; allExams: boolean };
 const danger = 'branch-action border-red-200 text-red-800 hover:bg-red-50';
 
-export function BranchArchiveControls({ exam, onChange }: { exam: BranchExam; onChange: (exams: BranchExam[]) => void }) {
+export function BranchArchiveControls({ exam, uid, onChange }: { exam: BranchExam; uid?: string; onChange: (exams: BranchExam[]) => void }) {
   const [studentId, setStudentId] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
   const [message, setMessage] = useState('');
@@ -58,7 +58,7 @@ export function BranchArchiveControls({ exam, onChange }: { exam: BranchExam; on
               try {
                 const next = updateBranchExams((exams) => pending.type === 'exam'
                   ? exams.filter((item) => item.id !== exam.id)
-                  : removeBranchStudent(exams, pending.id, pending.allExams ? undefined : exam.id));
+                  : removeBranchStudent(exams, pending.id, pending.allExams ? undefined : exam.id), uid);
                 onChange(next);
                 setStudentId('');
                 setPending(null);

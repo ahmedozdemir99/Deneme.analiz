@@ -11,6 +11,7 @@ import { buildStudentKey, normalizeClassName, normalizeTurkish } from './pdfPars
 import { isAttendedExamRecord } from './analytics';
 
 const STORAGE_KEY = 'lgs_deneme_arsivi_v1';
+const archiveStorageKey = (uid?: string) => uid ? `${STORAGE_KEY}:user:${uid}` : STORAGE_KEY;
 
 export const EMPTY_ARCHIVE_STATE: ExamArchiveState = {
   exams: [],
@@ -318,9 +319,9 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
   };
 }
 
-export function loadArchiveState(): ExamArchiveState | null {
+export function loadArchiveState(uid?: string): ExamArchiveState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(archiveStorageKey(uid));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ExamArchiveState;
     if (!parsed || !Array.isArray(parsed.exams) || !Array.isArray(parsed.students)) {
@@ -336,7 +337,7 @@ export function loadArchiveState(): ExamArchiveState | null {
     const { state: cleaned, removedDuplicates } = deduplicateArchiveState(archive);
     if (bundledSamples.length > 0 || removedDuplicates > 0) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+        localStorage.setItem(archiveStorageKey(uid), JSON.stringify(cleaned));
       } catch {
         // ignore quota error
       }
@@ -347,9 +348,9 @@ export function loadArchiveState(): ExamArchiveState | null {
   }
 }
 
-export function saveArchiveState(state: ExamArchiveState): { ok: boolean; error?: string } {
+export function saveArchiveState(state: ExamArchiveState, uid?: string): { ok: boolean; error?: string } {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(archiveStorageKey(uid), JSON.stringify(state));
     return { ok: true };
   } catch {
     return {
@@ -359,9 +360,9 @@ export function saveArchiveState(state: ExamArchiveState): { ok: boolean; error?
   }
 }
 
-export function clearArchiveState(): void {
+export function clearArchiveState(uid?: string): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(archiveStorageKey(uid));
   } catch {
     // ignore
   }

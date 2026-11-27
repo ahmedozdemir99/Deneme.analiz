@@ -17,7 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { ExamArchiveState } from '../types/exam';
-import { makeArchiveJson, readArchiveJson } from '../utils/branchArchive';
+import { makeArchiveJson, readArchiveJson, readBranchExams } from '../utils/branchArchive';
 import type { BranchExam } from '../utils/branchHistory';
 import { formatTrNumber } from '../utils/analytics';
 import { downloadExcelTemplate, exportSchoolArchiveToExcel } from '../utils/excelHandler';
@@ -31,6 +31,8 @@ interface ExamArchiveViewProps {
   onDeleteExam: (examId: string) => void;
   onRenameExam: (examId: string, newName: string) => void;
   onImportJson: (state: ExamArchiveState, branchExams?: BranchExam[]) => void;
+  canAdoptGuestArchive: boolean;
+  onAdoptGuestArchive: () => void;
 }
 
 export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
@@ -40,17 +42,20 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
   onDeleteExam,
   onRenameExam,
   onImportJson,
+  canAdoptGuestArchive,
+  onAdoptGuestArchive,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmAdoption, setConfirmAdoption] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
   const sortedExams = [...state.exams].sort((a, b) => a.examOrder - b.examOrder);
 
   const handleExportBackup = () => {
-    const blob = new Blob([makeArchiveJson(state)], { type: 'application/json' });
+    const blob = new Blob([makeArchiveJson(state, readBranchExams(cloud.user?.uid))], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -75,6 +80,22 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {canAdoptGuestArchive && <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-3">
+        <p className="text-sm text-slate-600">Bu tarayıcıda bir hesaba bağlanmamış tam LGS kayıtları var. Yalnızca sana aitse bu hesaba aktar.</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="branch-action border-slate-300 text-blue-800" onClick={() => {
+            if (!confirmAdoption) { setConfirmAdoption(true); return; }
+            try {
+              onAdoptGuestArchive();
+              setConfirmAdoption(false);
+              setImportError(null);
+            } catch (reason) {
+              setImportError(reason instanceof Error ? reason.message : 'Eski kayıtlar aktarılamadı.');
+            }
+          }}>{confirmAdoption ? 'Kayıtlar bana ait, bu hesaba aktar' : 'Eski kayıtları aktar'}</button>
+          {confirmAdoption && <button type="button" className="branch-action border-slate-300" onClick={() => setConfirmAdoption(false)}>Vazgeç</button>}
+        </div>
+      </div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">Yüklenen Deneme Arşivi</h1>
@@ -104,7 +125,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
           <button
             type="button"
             onClick={handleExportBackup}
-            disabled={state.exams.length === 0}
+            disabled={!cloud.authReady || (!state.exams.length && !readBranchExams(cloud.user?.uid).length)}
             className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg text-center border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
             <Download className="h-3.5 w-3.5" />
@@ -113,6 +134,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
           <button
             type="button"
             onClick={() => jsonInputRef.current?.click()}
+            disabled={!cloud.authReady}
             className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg text-center border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
           >
             <Upload className="h-3.5 w-3.5" />

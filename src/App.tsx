@@ -15,6 +15,7 @@ import type { BranchExam } from './utils/branchHistory';
 import {
   addManualExamToStudent,
   deduplicateArchiveState,
+  clearArchiveState,
   deleteExamFromState,
   EMPTY_ARCHIVE_STATE,
   loadArchiveState,
@@ -32,6 +33,8 @@ import { BranchAnalysisView } from './components/BranchAnalysisView';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { CloudBackupControl } from './components/CloudBackupControl';
 import { LeaderboardView } from './components/LeaderboardView';
+import { auth } from './firebase';
+import { mergeLocalAndCloudArchives } from './utils/cloudBackup';
 import { useCloudBackup } from './hooks/useCloudBackup';
 
 type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses' | 'branches';
@@ -40,6 +43,7 @@ export default function App() {
   const [archive, setArchive] = useState<ExamArchiveState>(() => {
     return loadArchiveState() ?? EMPTY_ARCHIVE_STATE;
   });
+  const [archiveUid, setArchiveUid] = useState<string>();
   const [activeTab, setActiveTab] = useState<NavTab>('students');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -50,15 +54,32 @@ export default function App() {
   } | null>(null);
 
   const persistAndSet = useCallback((next: ExamArchiveState) => {
+    if (auth.currentUser?.uid !== archiveUid) throw new Error('Hesap değişti. İşlemi yeniden başlatın.');
+    const saved = saveArchiveState(next, archiveUid);
+    if (!saved.ok) throw new Error(saved.error ?? 'Arşiv kaydedilemedi.');
     setArchive(next);
-    const saved = saveArchiveState(next);
-    if (!saved.ok && saved.error) {
-      setBannerMessage({ type: 'error', text: saved.error });
-    }
-  }, []);
+  }, [archiveUid]);
 
-  const cloud = useCloudBackup(archive, persistAndSet, setBannerMessage);
+  const onAccountChange = useCallback((uid: string | undefined, next: ExamArchiveState) => {
+    setArchiveUid(uid);
+    setArchive(next);
+    setSelectedStudentId(null);
+    setIsUploadOpen(false);
+    setBannerMessage(null);
+  }, []);
+  const cloud = useCloudBackup(archive, persistAndSet, onAccountChange, setBannerMessage);
   const { queueNewExams } = cloud;
+  const branchUid = archiveUid;
+
+  const adoptGuestArchive = useCallback(() => {
+    if (!archiveUid || archiveUid !== auth.currentUser?.uid) throw new Error('Hesap değişti. İşlemi yeniden başlatın.');
+    const guest = loadArchiveState();
+    if (!guest?.exams.length) return;
+    const current = loadArchiveState(archiveUid) ?? EMPTY_ARCHIVE_STATE;
+    persistAndSet(mergeLocalAndCloudArchives(guest, current).merged);
+    clearArchiveState();
+    setBannerMessage({ type: 'info', text: 'Hesaba bağlanmamış tam LGS kayıtları bu hesaba aktarıldı.' });
+  }, [archiveUid, persistAndSet]);
 
   const saveNewExams = useCallback((next: ExamArchiveState) => {
     const previousIds = new Set(archive.exams.map((exam) => exam.id));
@@ -108,9 +129,13 @@ export default function App() {
   const handleDeleteExam = useCallback(
     (examId: string) => {
       const next = deleteExamFromState(archive, examId);
-      persistAndSet(next);
-      if (selectedStudentId && !next.students.some((s) => s.id === selectedStudentId)) {
-        setSelectedStudentId(null);
+      try {
+        persistAndSet(next);
+        if (selectedStudentId && !next.students.some((s) => s.id === selectedStudentId)) {
+          setSelectedStudentId(null);
+        }
+      } catch (reason) {
+        setBannerMessage({ type: 'error', text: reason instanceof Error ? reason.message : 'Deneme silinemedi.' });
       }
     },
     [archive, persistAndSet, selectedStudentId]
@@ -119,7 +144,11 @@ export default function App() {
   const handleRenameExam = useCallback(
     (examId: string, newName: string) => {
       const next = renameExamInState(archive, examId, newName);
-      persistAndSet(next);
+      try {
+        persistAndSet(next);
+      } catch (reason) {
+        setBannerMessage({ type: 'error', text: reason instanceof Error ? reason.message : 'Deneme adı değiştirilemedi.' });
+      }
     },
     [archive, persistAndSet]
   );
@@ -138,20 +167,21 @@ export default function App() {
 
   const handleImportJson = useCallback(
     (imported: ExamArchiveState, incomingBranches?: BranchExam[]) => {
+      if (auth.currentUser?.uid !== branchUid) throw new Error('Hesap değişti. JSON dosyasını yeniden seçin.');
       const { state: cleaned } = deduplicateArchiveState(imported);
-      const previousBranches = incomingBranches ? readBranchExams() : [];
+      const previousBranches = incomingBranches ? readBranchExams(branchUid) : [];
       const merged = incomingBranches ? mergeBranchBackup(previousBranches, incomingBranches) : undefined;
       const branchesChanged = Boolean(merged && (merged.addedExams || merged.addedResults));
       if (merged && branchesChanged) {
         try {
-          updateBranchExams(() => merged.exams);
+          updateBranchExams(() => merged.exams, branchUid);
         } catch {
           throw new Error('Branş kayıtları kaydedilemedi. Tarayıcının depolama alanını kontrol edin.');
         }
       }
-      const saved = saveArchiveState(cleaned);
+      const saved = saveArchiveState(cleaned, branchUid);
       if (!saved.ok) {
-        if (branchesChanged) updateBranchExams(() => previousBranches);
+        if (branchesChanged) updateBranchExams(() => previousBranches, branchUid);
         throw new Error(saved.error ?? 'Arşiv kaydedilemedi.');
       }
       setArchive(cleaned);
@@ -163,7 +193,7 @@ export default function App() {
         text: `Yedek yüklendi (${cleaned.exams.length} tam LGS denemesi, ${cleaned.students.length} öğrenci).${branchCount}`,
       });
     },
-    []
+    [branchUid]
   );
 
   const handleSelectStudent = (studentId: string) => {
@@ -304,8 +334,10 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === 'branches' ? (
-          <BranchAnalysisView />
+        {!cloud.authReady || cloud.user?.uid !== archiveUid ? (
+          <p className="text-sm text-slate-600" role="status">Arşiv açılıyor…</p>
+        ) : activeTab === 'branches' ? (
+          <BranchAnalysisView key={`${branchUid ?? 'guest'}:${cloud.branchRefresh}`} uid={branchUid} />
         ) : activeTab === 'students' && selectedStudent ? (
           <StudentDetailView
             student={selectedStudent}
@@ -350,7 +382,10 @@ export default function App() {
             onOpenUpload={() => setIsUploadOpen(true)}
             onDeleteExam={handleDeleteExam}
             onRenameExam={handleRenameExam}
+            key={archiveUid ?? 'guest'}
             onImportJson={handleImportJson}
+            canAdoptGuestArchive={Boolean(archiveUid && loadArchiveState()?.exams.length)}
+            onAdoptGuestArchive={adoptGuestArchive}
           />
         ) : (
           <SchoolWeaknessView state={archive} onSelectStudent={handleSelectStudent} />

@@ -11,7 +11,10 @@ import { parseBranchExcel } from '../src/utils/branchAnalysis';
 import {
   branchHistoryChange, branchHistoryStudents, branchStudentHistory, branchSubjectAverages, type BranchExam,
 } from '../src/utils/branchHistory';
-import { makeArchiveJson, mergeBranchBackup, readArchiveJson, removeBranchStudent } from '../src/utils/branchArchive';
+import {
+  adoptGuestBranchExams, makeArchiveJson, mergeBranchBackup, readArchiveJson, readBranchCloudRevision,
+  readBranchExams, rememberBranchCloudRevision, removeBranchStudent, updateBranchExams,
+} from '../src/utils/branchArchive';
 import { branchStudentId } from '../src/utils/branchHistory';
 import { parseExamExcel } from '../src/utils/excelHandler';
 
@@ -131,6 +134,34 @@ test('Deneme Arşivi JSON includes branch records, restores missing results and 
   assert.equal(mergeBranchBackup(restored.exams, backup.branchExams!).addedResults, 0);
   assert.equal(mergeBranchBackup([exam], exams).addedExams, 1);
   assert.throws(() => mergeBranchBackup(exams, [{ ...exam, name: 'Farklı deneme' }]), /değiştirilmedi/);
+});
+
+test('branch local archives and cloud revisions are isolated by account', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const memory = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => memory.get(key) ?? null,
+    setItem: (key: string, value: string) => memory.set(key, value),
+    removeItem: (key: string) => memory.delete(key),
+  } });
+  const legacy: BranchExam = { id: 'legacy', name: 'Eski deneme', date: '2026-11-20', subject: 'matematik', results: [] };
+  const privateExam = { ...legacy, id: 'account-a' };
+  try {
+    updateBranchExams(() => [legacy]);
+    updateBranchExams(() => [privateExam], 'teacher-a');
+    rememberBranchCloudRevision('teacher-a', 'revision-a');
+    assert.deepEqual(readBranchExams('teacher-b'), []);
+    assert.equal(readBranchCloudRevision('teacher-b'), null);
+    assert.deepEqual(readBranchExams('teacher-a'), [privateExam]);
+    assert.deepEqual(readBranchExams(), [legacy]);
+    assert.deepEqual(adoptGuestBranchExams('teacher-a'), [privateExam, legacy]);
+    assert.deepEqual(readBranchExams(), []);
+    assert.deepEqual(readBranchExams('teacher-b'), []);
+    assert.equal(readBranchCloudRevision('teacher-a'), 'revision-a');
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
 });
 
 test('branch item results support rank ties, difficulty, discrimination and imported outcomes', () => {

@@ -3,10 +3,12 @@ import type { BranchResult } from './branchAnalysis';
 import { branchStudentId, type BranchExam } from './branchHistory';
 
 const archiveKey = 'deneme-analiz:branch-exams:v1';
+const keyForAccount = (uid?: string) => uid ? `${archiveKey}:user:${uid}` : archiveKey;
+const revisionKey = (uid: string) => `${keyForAccount(uid)}:cloud-revision`;
 
-export function readBranchExams(): BranchExam[] {
+export function readBranchExams(uid?: string): BranchExam[] {
   try {
-    const saved: BranchExam[] = JSON.parse(localStorage.getItem(archiveKey) || '[]');
+    const saved: BranchExam[] = JSON.parse(localStorage.getItem(keyForAccount(uid)) || '[]');
     return Array.isArray(saved) ? saved.filter((exam) =>
       exam && typeof exam.id === 'string' && Object.hasOwn(SUBJECT_MAP, exam.subject) && Array.isArray(exam.results)) : [];
   } catch {
@@ -14,9 +16,25 @@ export function readBranchExams(): BranchExam[] {
   }
 }
 
-export function updateBranchExams(update: (exams: BranchExam[]) => BranchExam[]) {
-  const next = update(readBranchExams());
-  localStorage.setItem(archiveKey, JSON.stringify(next));
+export function updateBranchExams(update: (exams: BranchExam[]) => BranchExam[], uid?: string) {
+  const next = update(readBranchExams(uid));
+  localStorage.setItem(keyForAccount(uid), JSON.stringify(next));
+  return next;
+}
+
+export function readBranchCloudRevision(uid: string) {
+  return localStorage.getItem(revisionKey(uid));
+}
+
+export function rememberBranchCloudRevision(uid: string, revision: string) {
+  localStorage.setItem(revisionKey(uid), revision);
+}
+
+export function adoptGuestBranchExams(uid: string) {
+  const guest = readBranchExams();
+  if (!guest.length) return readBranchExams(uid);
+  const next = updateBranchExams((current) => mergeBranchBackup(current, guest).exams, uid);
+  localStorage.removeItem(archiveKey);
   return next;
 }
 
