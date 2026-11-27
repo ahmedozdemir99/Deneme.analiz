@@ -48,35 +48,6 @@ function mean(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
-export function summarizeBranchAnswerGaps(rows: BranchResult[]) {
-  const emptyCounts = () => ({ correct: 0, incorrect: 0, blank: 0, total: 0, count: 0 });
-  const overall = emptyCounts();
-  const classrooms = new Map<string, ReturnType<typeof emptyCounts>>();
-  const students = rows.flatMap((row) => {
-    const { correct, incorrect, blank } = row;
-    if (correct === null || incorrect === null || blank === null) return [];
-    const total = correct + incorrect + blank;
-    if (!total) return [];
-    const counts = { correct, incorrect, blank, total, count: 1 };
-    const classroom = classrooms.get(row.classroom) ?? emptyCounts();
-    for (const sum of [overall, classroom]) {
-      sum.correct += correct;
-      sum.incorrect += incorrect;
-      sum.blank += blank;
-      sum.total += total;
-      sum.count++;
-    }
-    classrooms.set(row.classroom, classroom);
-    return [{ row, counts, gapRatio: (incorrect + blank) / total }];
-  });
-  return {
-    overall,
-    classrooms: [...classrooms].sort(([a], [b]) => a.localeCompare(b, 'tr')),
-    students: students.sort((a, b) => b.gapRatio - a.gapRatio || a.row.net - b.row.net ||
-      a.row.name.localeCompare(b.row.name, 'tr')),
-  };
-}
-
 export function summarizeBranchOutcomes(rows: BranchResult[]) {
   const topics = new Map<string, { title: string; total: number; correct: number; incorrect: number; blank: number; students: number }>();
   for (const row of rows) {

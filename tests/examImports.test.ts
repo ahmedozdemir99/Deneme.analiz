@@ -6,8 +6,11 @@ import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import * as XLSX from 'xlsx';
 import { SUBJECT_LIST } from '../src/types/exam';
-import { branchLevel, rankBranchStudents, summarizeBranchAnswerGaps, summarizeBranchItems, summarizeBranchOutcomes } from '../src/utils/branchStatistics';
+import { branchLevel, rankBranchStudents, summarizeBranchItems, summarizeBranchOutcomes } from '../src/utils/branchStatistics';
 import { parseBranchExcel } from '../src/utils/branchAnalysis';
+import {
+  branchHistoryChange, branchHistoryStudents, branchStudentHistory, branchSubjectAverages, type BranchExam,
+} from '../src/utils/branchHistory';
 import { parseExamExcel } from '../src/utils/excelHandler';
 
 function workbook(rows: unknown[][], bookType: 'xlsx' | 'xls' = 'xlsx') {
@@ -66,27 +69,37 @@ test('branch spreadsheets accept a single subject and keep net-only counts unkno
   assert.equal(netOnly.blank, null);
 });
 
-test('general branch gaps use answer totals without question or outcome data', () => {
-  const results = parseBranchExcel(workbook([
-    ['Öğrenci No', 'Adı Soyadı', 'Sınıf', 'Doğru', 'Yanlış', 'Boş', 'Net'],
-    [101, 'Örnek Öğrenci A', '8A', 18, 2, 0, 17.33],
-    [102, 'Örnek Öğrenci B', '8A', 15, 3, 2, 14],
-    [103, 'Örnek Öğrenci C', '8A', 12, 5, 3, 10.33],
-    [104, 'Örnek Öğrenci D', '8A', 9, 6, 5, 7],
-    [201, 'Örnek Öğrenci E', '8B', 20, 0, 0, 20],
-    [202, 'Örnek Öğrenci F', '8B', 14, 4, 2, 12.67],
-    [203, 'Örnek Öğrenci G', '8B', 11, 5, 4, 9.33],
-    [204, 'Örnek Öğrenci H', '8B', 7, 9, 4, 4],
-    [300, 'Örnek Öğrenci I', '8C', '', '', '', 10],
-  ]), { subject: 'matematik', questionCount: 20 });
-  const gaps = summarizeBranchAnswerGaps(results);
-  assert.deepEqual(gaps.overall, { correct: 106, incorrect: 34, blank: 20, total: 160, count: 8 });
-  assert.deepEqual(gaps.classrooms.map(([classroom, { incorrect, blank }]) => [classroom, incorrect, blank]),
-    [['8-A', 16, 10], ['8-B', 18, 10]]);
-  assert.equal(gaps.students[0].row.number, '204');
-  assert.equal(gaps.students[0].gapRatio, 13 / 20);
-  assert.equal(summarizeBranchItems(results).length, 0);
-  assert.equal(summarizeBranchOutcomes(results).length, 0);
+test('branch history orders archived exams, follows the same student and filters subject averages', () => {
+  const row = { name: 'Örnek Öğrenci', number: '0101', classroom: '8-A', questionCount: 20, correct: null, incorrect: null, blank: null };
+  const exam = (id: string, date: string, subject: BranchExam['subject'], net: number, classroom = '8-A'): BranchExam => ({
+    id, date, subject, name: id, results: [{ ...row, classroom, net }],
+  });
+  const exams = [
+    exam('Later upload', '2026-11-20', 'matematik', 14, '8-B'),
+    exam('Earlier upload', '2026-11-20', 'matematik', 12),
+    exam('Science', '2026-11-01', 'fen', 10),
+    exam('First', '2026-10-12', 'matematik', 8),
+  ];
+  exams[0].results.push({ ...row, number: '202', name: 'Başka Öğrenci', net: 6 });
+  const students = branchHistoryStudents(exams);
+  assert.equal(students.length, 2);
+  const id = students.find(([, student]) => student.number === '0101')![0];
+  const history = branchStudentHistory(exams, 'matematik', id);
+  assert.deepEqual(history.map(({ id, net }) => [id, net]), [['First', 8], ['Earlier upload', 12], ['Later upload', 14]]);
+  assert.equal(branchHistoryChange(history)?.percent, 75);
+  assert.equal(branchHistoryChange(history.slice(0, 1)), null);
+  assert.equal(branchHistoryChange([{ ...history[0], net: -2 }, history[2]])?.percent, 800);
+  assert.equal(branchHistoryChange([{ ...history[0], net: 0 }, history[2]])?.percent, null);
+  assert.equal(branchHistoryChange([{ ...history[0], net: 0 }, history[2]])?.difference, 14);
+  assert.equal(branchStudentHistory([exam('Invalid', '2026-02-30', 'matematik', 5)], 'matematik', id).length, 0);
+  const math = branchSubjectAverages(exams, 'matematik', id);
+  assert.equal(math.length, 1);
+  assert.equal(math[0].examCount, 3);
+  assert.equal(math[0].groupAverage, 10);
+  assert.equal(math[0].studentAverage, (8 + 12 + 14) / 3);
+  const all = branchSubjectAverages(exams, 'all', id);
+  assert.equal(all.find(({ key }) => key === 'fen')?.studentAverage, 10);
+  assert.equal(all.find(({ key }) => key === 'turkce')?.groupAverage, null);
 });
 
 test('branch item results support rank ties, difficulty, discrimination and imported outcomes', () => {

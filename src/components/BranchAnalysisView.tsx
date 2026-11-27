@@ -1,17 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Download, FileUp } from 'lucide-react';
 import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
-import { downloadBranchTemplate, parseBranchExcel, type BranchResult } from '../utils/branchAnalysis';
+import { downloadBranchTemplate, parseBranchExcel } from '../utils/branchAnalysis';
+import type { BranchExam } from '../utils/branchHistory';
+import { BranchHistory } from './BranchHistory';
 import { BranchReport } from './BranchReport';
 import { parseBranchPdf } from '../utils/pdfParser';
-
-interface BranchExam {
-  id: string;
-  name: string;
-  date: string;
-  subject: SubjectKey;
-  results: BranchResult[];
-}
 
 const archiveKey = 'deneme-analiz:branch-exams:v1';
 const field = 'mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
@@ -30,13 +24,15 @@ function readBranchExams(): BranchExam[] {
 export function BranchAnalysisView() {
   const [exams, setExams] = useState(readBranchExams);
   const [examId, setExamId] = useState(() => exams[0]?.id ?? '');
+  const [filter, setFilter] = useState<SubjectKey | 'all'>('all');
   const [subject, setSubject] = useState<SubjectKey>('matematik');
   const [questionCount, setQuestionCount] = useState(SUBJECT_MAP.matematik.questionCount);
   const [file, setFile] = useState<File | null>(null);
   const [classroom, setClassroom] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const exam = exams.find((item) => item.id === examId);
+  const filteredExams = useMemo(() => filter === 'all' ? exams : exams.filter((item) => item.subject === filter), [exams, filter]);
+  const exam = filteredExams.find((item) => item.id === examId) ?? filteredExams[0];
   const classrooms = useMemo(
     () => [...new Set(exam?.results.map((row) => row.classroom).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr')),
     [exam],
@@ -48,6 +44,10 @@ export function BranchAnalysisView() {
 
   return (
     <div className="space-y-5">
+      {exams.length > 0 && <BranchHistory exams={exams} filter={filter} onFilterChange={(value) => {
+        setFilter(value);
+        setClassroom('');
+      }} />}
       <section className={panel}>
         <h1 className="text-xl font-bold text-slate-900">Branş Denemesi Analizi</h1>
         <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı PDF sonuç listesini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
@@ -72,6 +72,7 @@ export function BranchAnalysisView() {
             localStorage.setItem(archiveKey, JSON.stringify(next));
             setExams(next);
             setExamId(item.id);
+            if (filter !== 'all') setFilter(subject);
             setClassroom('');
             setFile(null);
             form.reset();
@@ -120,11 +121,11 @@ export function BranchAnalysisView() {
       {exam && <section className={panel}>
         <div className="flex flex-wrap items-end gap-3">
           <label className="min-w-0 flex-1 text-sm font-semibold">Branş arşivi
-            <select value={examId} className={field} onChange={(event) => {
+            <select value={exam.id} className={field} onChange={(event) => {
               setExamId(event.target.value);
               setClassroom('');
             }}>
-              {exams.map((item) => <option key={item.id} value={item.id}>{item.name} · {SUBJECT_MAP[item.subject].label} · {item.date}</option>)}
+              {filteredExams.map((item) => <option key={item.id} value={item.id}>{item.name} · {SUBJECT_MAP[item.subject].label} · {item.date}</option>)}
             </select>
           </label>
           {classrooms.length > 0 && <label className="text-sm font-semibold">Sınıf
