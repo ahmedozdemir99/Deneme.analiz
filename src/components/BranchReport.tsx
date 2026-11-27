@@ -12,7 +12,8 @@ const levelColors = {
   'very-good': 'bg-emerald-100 text-emerald-900',
   good: 'bg-sky-100 text-sky-900',
   medium: 'bg-amber-100 text-amber-900',
-  'needs-work': 'bg-rose-100 text-rose-900',
+  'needs-work': 'bg-orange-100 text-orange-900',
+  'very-low': 'bg-rose-100 text-rose-900',
 };
 const inputClass = 'min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const cell = 'whitespace-nowrap px-3 py-2 tabular-nums';
@@ -65,7 +66,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
   const studentItems = Object.entries(student?.items ?? {}).sort(([a], [b]) => Number(a) - Number(b));
   const byDifficulty = [...items].sort((a, b) => a.difficulty - b.difficulty || a.question - b.question);
   const priority = byDifficulty.filter((item) => item.difficulty < 0.6).slice(0, 5);
-  const support = scoped.filter(({ row }) => branchLevel(branchPercent(row)).id === 'needs-work');
+  const support = scoped.filter(({ row }) => branchPercent(row) < BRANCH_LEVELS[2].minimum);
   const stats = [
     ['Öğrenci', rows.length], ['Ortalama net', number(summary.averageNet)],
     ['Ortalama doğru', number(summary.averageCorrect)], ['Ortalama yanlış', number(summary.averageIncorrect)],
@@ -80,8 +81,8 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
         </div>)}
       </dl>
       <div className="flex flex-wrap gap-2" aria-label="Net düzeylerine göre öğrenci sayısı">
-        {BRANCH_LEVELS.map(({ id, label }) => <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelColors[id]}`} key={id}>
-          {label} · {summary.levels.get(id)}
+        {[...BRANCH_LEVELS].reverse().map(({ id, label, range }) => <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelColors[id]}`} key={id}>
+          {label} (%{range}) · {summary.levels.get(id)}
         </span>)}
       </div>
       <nav aria-label="Branş analizi görünümleri" className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
@@ -101,7 +102,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
             </select>
           </label>
         </div>
-        <p className={muted}>Düzey, netin soru sayısına oranına göre belirlenir. %40 altı: Geliştirmeli · %40–59: Orta · %60–79: İyi · %80 ve üzeri: Çok iyi. Eşit netler aynı sırayı paylaşır.</p>
+        <p className={muted}>Düzey, netin soru sayısına oranına göre belirlenir. Negatif netler en düşük düzeye girer. Eşit netler aynı sırayı paylaşır.</p>
         {visible.length ? <ResultsTable label="Branş sıralaması" headings={['Genel sıra', ...(rows !== allRows ? ['Sınıf sırası'] : []), 'Öğrenci', 'Sınıf', 'Soru', 'Doğru', 'Yanlış', 'Boş', 'Net', 'Düzey']}>
           {visible.map(({ row, rank }) => {
             const badge = branchLevel(branchPercent(row));

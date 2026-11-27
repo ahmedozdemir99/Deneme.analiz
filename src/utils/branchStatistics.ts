@@ -2,14 +2,15 @@ import type { BranchMark, BranchResult } from './branchAnalysis';
 import { normalizeTurkish } from './examLabels';
 
 export const BRANCH_LEVELS = [
-  { id: 'very-good', label: 'Çok iyi', minimum: 80 },
-  { id: 'good', label: 'İyi', minimum: 60 },
-  { id: 'medium', label: 'Orta', minimum: 40 },
-  { id: 'needs-work', label: 'Geliştirmeli', minimum: -Infinity },
+  { id: 'very-good', label: 'Çok iyi', minimum: 80, range: '80–100' },
+  { id: 'good', label: 'İyi', minimum: 60, range: '60–79' },
+  { id: 'medium', label: 'Orta', minimum: 40, range: '40–59' },
+  { id: 'needs-work', label: 'Geliştirilmeli', minimum: 20, range: '20–39' },
+  { id: 'very-low', label: 'Çok kötü', minimum: 0, range: '0–19' },
 ] as const;
 
 export function branchLevel(percent: number) {
-  return BRANCH_LEVELS.find(({ minimum }) => percent >= minimum) ?? BRANCH_LEVELS[3];
+  return BRANCH_LEVELS.find(({ minimum }) => percent >= minimum) ?? BRANCH_LEVELS[4];
 }
 
 export function branchPercent(row: BranchResult) {

@@ -104,7 +104,10 @@ test('branch item results support rank ties, difficulty, discrimination and impo
   ]), options), /uyuşmuyor/);
   const tied = [{ ...results[0], net: 2 }, { ...results[1], net: 2 }, { ...results[2], net: 2 }, results[3]];
   assert.deepEqual(rankBranchStudents(tied).map(({ rank }) => rank), [1, 1, 1, 4]);
-  assert.deepEqual([39.9, 40, 60, 80].map((value) => branchLevel(value).id), ['needs-work', 'medium', 'good', 'very-good']);
+  assert.deepEqual(
+    [-5, 0, 19.99, 20, 39.99, 40, 59.99, 60, 79.99, 80, 100].map((value) => branchLevel(value).label),
+    ['Çok kötü', 'Çok kötü', 'Çok kötü', 'Geliştirilmeli', 'Geliştirilmeli', 'Orta', 'Orta', 'İyi', 'İyi', 'Çok iyi', 'Çok iyi'],
+  );
 });
 
 function textPdf(rows: string[][]) {
