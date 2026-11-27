@@ -58,7 +58,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
         onClick={() => void cloud.signInWithGoogle()}
         disabled={cloud.isSigningIn}
         title="Google ile giriş yaparak mevcut yedeğinizi açın ve yeni denemeleri yedekleyin"
-        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border border-slate-300 bg-white px-2 sm:px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
+        className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border border-slate-300 bg-white px-2 sm:px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50/50 hover:text-blue-700 disabled:opacity-50"
       >
         {cloud.isSigningIn ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
@@ -80,7 +80,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border px-2 sm:px-2.5 text-xs font-semibold transition-colors ${
+        className={`inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg sm:gap-1.5 border px-2 sm:px-2.5 text-xs font-semibold transition-colors ${
           isError
             ? 'border-red-300 bg-red-50 text-red-700 hover:bg-red-100'
             : isOffline

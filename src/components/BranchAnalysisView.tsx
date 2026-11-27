@@ -9,7 +9,7 @@ import { BranchHistory } from './BranchHistory';
 import { BranchReport } from './BranchReport';
 import { parseBranchPdf } from '../utils/pdfParser';
 
-const field = 'mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const field = 'mt-1 block min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const panel = 'min-w-0 [overflow-wrap:anywhere] rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
 
 export function BranchAnalysisView() {
@@ -92,15 +92,15 @@ export function BranchAnalysisView() {
             <input name="examName" maxLength={160} placeholder="Boşsa dosya adı kullanılır" className={field} disabled={busy} />
           </label>
           <label className="text-sm font-semibold sm:col-span-2">Sonuç dosyası
-            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className={`${field} overflow-hidden text-ellipsis whitespace-nowrap`} disabled={busy} required
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className={`${field} overflow-hidden text-ellipsis whitespace-nowrap file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:font-semibold file:text-slate-700`} disabled={busy} required
               onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
           </label>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:col-span-2 lg:col-span-3">
+          <div className="grid grid-cols-2 gap-2 sm:col-span-2 sm:max-w-md lg:col-span-3">
             <button type="submit" disabled={busy || !file}
-              className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg bg-blue-700 px-3 text-left text-sm sm:px-4 font-semibold text-white disabled:opacity-60">
+              className="branch-action bg-blue-700 text-white hover:bg-blue-800">
               <FileUp aria-hidden="true" className="size-4 shrink-0" /> {busy ? 'Okunuyor…' : 'Analiz et ve kaydet'}
             </button>
-            <button type="button" onClick={() => downloadBranchTemplate(questionCount)} className="inline-flex min-h-10 max-w-full items-center gap-2 text-left text-sm font-semibold text-blue-700 underline">
+            <button type="button" onClick={() => downloadBranchTemplate(questionCount)} className="branch-action border-slate-300 bg-white text-blue-800 hover:bg-blue-50">
               <Download aria-hidden="true" className="size-4 shrink-0" /> Branş Excel şablonu
             </button>
           </div>

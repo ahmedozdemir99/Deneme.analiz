@@ -15,7 +15,7 @@ const levelColors = {
   'needs-work': 'bg-orange-100 text-orange-900',
   'very-low': 'bg-rose-100 text-rose-900',
 };
-const inputClass = 'min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const inputClass = 'min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const cell = 'whitespace-nowrap px-3 py-2 tabular-nums';
 const muted = 'text-sm text-slate-600';
 const number = (value: number | null) => value === null ? '—' : formatTrNumber(value);
@@ -90,9 +90,9 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
           {label} (%{range}) · {summary.levels.get(id)}
         </span>)}
       </div>
-      <nav aria-label="Branş analizi görünümleri" className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+      <nav aria-label="Branş analizi görünümleri" className="grid grid-cols-3 gap-2 border-b border-slate-200 pb-2">
         {tabs.map((label) => <button type="button" key={label} aria-pressed={tab === label} onClick={() => setTab(label)}
-          className={`min-h-10 rounded-lg px-3 text-sm font-semibold ${tab === label ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-800'}`}>{label}</button>)}
+          className={`branch-action ${tab === label ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-800'}`}>{label}</button>)}
       </nav>
 
       {tab === 'Sıralama' && <div className="space-y-3">
@@ -115,7 +115,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
               <td className={cell} role="cell" data-label="Genel sıra">{overall.get(row)}</td>
               {rows !== allRows && <td className={cell} role="cell" data-label="Sınıf sırası">{rank}</td>}
               <th scope="row" className={cell} role="rowheader">
-                <button className="max-w-full whitespace-normal text-left font-semibold text-blue-800 underline underline-offset-2 [overflow-wrap:anywhere] sm:max-w-48" type="button"
+                <button className="min-h-11 max-w-full whitespace-normal text-left font-semibold text-blue-800 underline underline-offset-2 [overflow-wrap:anywhere] sm:max-w-48" type="button"
                   aria-expanded={student === row} onClick={() => setSelected(student === row ? undefined : row)}>{row.name}</button>
                 {row.number && <span className="ml-2 font-normal text-slate-500">{row.number}</span>}
               </th>

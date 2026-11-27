@@ -4,7 +4,7 @@ import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
 import { formatTrNumber } from '../utils/analytics';
 import { branchHistoryChange, branchHistoryStudents, branchStudentHistory, branchSubjectAverages, type BranchExam } from '../utils/branchHistory';
 
-const field = 'mt-1 block min-h-10 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 py-2 sm:px-3 text-sm';
+const field = 'mt-1 block min-h-11 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 py-2 sm:px-3 text-sm';
 const panel = 'min-w-0 space-y-4 [overflow-wrap:anywhere] rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
 const dateLabel = (date: string) => date.split('-').reverse().join('.');
 const netLabel = (value: number | null) => value === null ? '—' : formatTrNumber(value);

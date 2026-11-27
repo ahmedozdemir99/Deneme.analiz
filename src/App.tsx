@@ -246,7 +246,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsUploadOpen(true)}
-              className="inline-flex shrink-0 items-center gap-1 sm:gap-2 whitespace-nowrap rounded-lg bg-blue-700 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-700 px-3 sm:gap-2 sm:px-3.5 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
             >
               <FileUp className="h-4 w-4" />
               <span className="hidden sm:inline">PDF / Excel Yükle</span>
@@ -256,7 +256,7 @@ export default function App() {
         </div>
 
         {/* Mobile navigation row */}
-        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-1 min-[360px]:grid-cols-6 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
+        <div className="mx-auto grid max-w-7xl auto-rows-fr grid-cols-3 gap-1 min-[360px]:grid-cols-6 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -267,7 +267,7 @@ export default function App() {
                   setActiveTab(item.id);
                   if (item.id !== 'students') setSelectedStudentId(null);
                 }}
-                className={`flex min-h-12 min-w-0 flex-col items-center gap-1 rounded-lg px-0.5 py-1.5 text-[10px] font-semibold leading-tight sm:justify-center sm:text-xs ${
+                className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[10px] font-semibold leading-tight sm:text-xs ${
                   isActive
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
