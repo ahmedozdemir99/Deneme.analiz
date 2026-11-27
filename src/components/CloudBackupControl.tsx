@@ -142,6 +142,7 @@ export const CloudBackupControl: React.FC<CloudBackupControlProps> = ({
           )}
 
           <div className="mt-3.5 space-y-1.5 border-t border-slate-100 pt-3">
+            <p className="text-[11px] text-slate-600">Tam LGS ve branş yedekleri bu Google hesabına kaydedilir.</p>
             <button
               type="button"
               onClick={() => void cloud.backupNow()}

@@ -235,6 +235,26 @@ service cloud.firestore {
 
       allow delete: if isVerifiedOwner(userId) && isValidId(userId);
 
+      // Branch snapshots are stored separately from the full LGS archive.
+      match /branchBackup/current {
+        allow get: if isVerifiedOwner(userId) && isValidId(userId);
+        allow create, update: if isVerifiedOwner(userId) && isValidId(userId) &&
+          incoming().keys().hasOnly(['ownerId', 'revision', 'partCount', 'updatedAt']) &&
+          incoming().ownerId == userId && isValidId(incoming().revision) &&
+          incoming().partCount is int && incoming().partCount >= 1 && incoming().partCount <= 20 &&
+          incoming().updatedAt == request.time;
+      }
+
+      match /branchBackupParts/{partId} {
+        allow get: if isVerifiedOwner(userId) && isValidId(userId) && partId.matches('^([0-9]|1[0-9])$');
+        allow delete: if isVerifiedOwner(userId) && isValidId(userId) && partId.matches('^([0-9]|1[0-9])$');
+        allow create, update: if isVerifiedOwner(userId) && isValidId(userId) && partId.matches('^([0-9]|1[0-9])$') &&
+          incoming().keys().hasOnly(['ownerId', 'revision', 'payload']) &&
+          incoming().ownerId == userId && isValidId(incoming().revision) &&
+          getAfter(/databases/$(database)/documents/users/$(userId)/branchBackup/current).data.revision == incoming().revision &&
+          incoming().payload is string && incoming().payload.size() >= 1 && incoming().payload.size() <= 125000;
+      }
+
       // Subcollection: Imported LGS Exams
       match /exams/{examId} {
         allow get: if isVerifiedOwner(userId) &&

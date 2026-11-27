@@ -3,7 +3,7 @@ import { Download, FileUp } from 'lucide-react';
 import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
 import { downloadBranchTemplate, parseBranchExcel } from '../utils/branchAnalysis';
 import type { BranchExam } from '../utils/branchHistory';
-import { readBranchExams, updateBranchExams } from '../utils/branchArchive';
+import { adoptGuestBranchExams, readBranchExams, updateBranchExams } from '../utils/branchArchive';
 import { BranchArchiveControls } from './BranchArchiveControls';
 import { BranchHistory } from './BranchHistory';
 import { BranchReport } from './BranchReport';
@@ -12,8 +12,10 @@ import { parseBranchPdf } from '../utils/pdfParser';
 const field = 'mt-1 block min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const panel = 'min-w-0 [overflow-wrap:anywhere] rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
 
-export function BranchAnalysisView() {
-  const [exams, setExams] = useState(readBranchExams);
+export function BranchAnalysisView({ uid }: { uid?: string }) {
+  const [exams, setExams] = useState(() => readBranchExams(uid));
+  const [hasGuestExams, setHasGuestExams] = useState(() => Boolean(uid && readBranchExams().length));
+  const [confirmAdoption, setConfirmAdoption] = useState(false);
   const [examId, setExamId] = useState(() => exams[0]?.id ?? '');
   const [filter, setFilter] = useState<SubjectKey | 'all'>('all');
   const [subject, setSubject] = useState<SubjectKey>('matematik');
@@ -39,9 +41,27 @@ export function BranchAnalysisView() {
         setFilter(value);
         setClassroom('');
       }} />}
+      {uid && hasGuestExams && <section className={panel}>
+        <h2 className="font-semibold">Eski branş kayıtları</h2>
+        <p className="mt-1 text-sm text-slate-600">Bu tarayıcıda bir hesaba bağlanmamış kayıtlar var. Yalnızca sana aitse bu hesaba aktar.</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" className="branch-action border-slate-300 text-blue-800" onClick={() => {
+            if (!confirmAdoption) { setConfirmAdoption(true); return; }
+            try {
+              setExams(adoptGuestBranchExams(uid));
+              setHasGuestExams(false);
+              setConfirmAdoption(false);
+              setError('');
+            } catch (reason) {
+              setError(reason instanceof Error ? reason.message : 'Eski branş kayıtları aktarılamadı.');
+            }
+          }}>{confirmAdoption ? 'Kayıtlar bana ait, bu hesaba aktar' : 'Eski kayıtları aktar'}</button>
+          {confirmAdoption && <button type="button" className="branch-action border-slate-300" onClick={() => setConfirmAdoption(false)}>Vazgeç</button>}
+        </div>
+      </section>}
       <section className={panel}>
         <h1 className="text-xl font-bold text-slate-900">Branş Denemesi Analizi</h1>
-        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı sonuç listesini, ZipGrade sonuç PDF’sini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
+        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı sonuç listesini, ZipGrade sonuç PDF’sini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kaydedilir. Google hesabı açıkken branş arşivi hesaba ayrılır.</p>
         <form className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
           if (!file || busy) return;
@@ -61,7 +81,7 @@ export function BranchAnalysisView() {
               ? await parseBranchPdf(source, options)
               : parseBranchExcel(source, options, file.name);
             const item: BranchExam = { id: crypto.randomUUID(), name, date, subject, results: parsed };
-            const next = updateBranchExams((current) => [item, ...current]);
+            const next = updateBranchExams((current) => [item, ...current], uid);
             setExams(next);
             setExamId(item.id);
             if (filter !== 'all') setFilter(subject);
@@ -131,7 +151,7 @@ export function BranchAnalysisView() {
           </label>}
         </div>
         <h2 className="mt-4 font-semibold text-slate-900">{SUBJECT_MAP[exam.subject].label} · {exam.name}</h2>
-        <BranchArchiveControls key={`archive:${exam.id}`} exam={exam} onChange={(next) => {
+        <BranchArchiveControls key={`archive:${exam.id}`} exam={exam} uid={uid} onChange={(next) => {
           setExams(next);
           const remaining = next.find((item) => item.id === exam.id);
           if (!remaining?.results.some((row) => row.classroom === classroom)) setClassroom('');
