@@ -71,7 +71,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
   const studentItems = Object.entries(student?.items ?? {}).sort(([a], [b]) => Number(a) - Number(b));
   const byDifficulty = [...items].sort((a, b) => a.difficulty - b.difficulty || a.question - b.question);
   const priority = byDifficulty.filter((item) => item.difficulty < 0.6).slice(0, 5);
-  const support = scoped.filter(({ row }) => branchPercent(row) < BRANCH_LEVELS[2].minimum);
+  const support = scoped.filter(({ row }) => branchLevel(branchPercent(row)).needsSupport);
   const stats = [
     ['Öğrenci', rows.length], ['Ortalama net', number(summary.averageNet)],
     ['Ortalama doğru', number(summary.averageCorrect)], ['Ortalama yanlış', number(summary.averageIncorrect)],
@@ -113,7 +113,7 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
             </select>
           </label>
         </div>
-        <p className={muted}>Düzey, netin soru sayısına oranına göre belirlenir. Negatif netler en düşük düzeye girer. Eşit netler aynı sırayı paylaşır.</p>
+        <p className={muted}>Düzey, netin soru sayısına oranına göre belirlenir. Eksi netler Kötü düzeyine girer. Eşit netler aynı sırayı paylaşır.</p>
         {visible.length ? <ResultsTable label="Branş sıralaması" mobileCards headings={['Genel sıra', ...(rows !== allRows ? ['Sınıf sırası'] : []), 'Öğrenci', 'Sınıf', 'Soru', 'Doğru', 'Yanlış', 'Boş', 'Net', 'Düzey']}>
           {visible.map(({ row, rank }) => {
             const badge = branchLevel(branchPercent(row));
@@ -145,14 +145,21 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
       </div>}
 
       {tab === 'Eksik analizi' && <div className="space-y-3">
-        <h3 className="font-bold">Destek önceliği</h3>
+        <h3 className="font-bold">Desteğe ihtiyacı olan öğrenciler</h3>
+        <p className={muted}>Kötü ve Geliştirilmeli düzeyindeki öğrenciler bu listede gösterilir.</p>
         {support.length ? <ResultsTable label="Destek önceliği olan öğrenciler" headings={['Öğrenci', 'Sınıf', 'Net', 'Net / soru']}>
-          {support.map(({ row }) => <tr key={`${row.number}:${row.name}:${row.classroom}`}>
-            <th scope="row" className={cell}>{row.name}</th>
-            {[row.classroom || '—', number(row.net), percent(row.net / row.questionCount)].map((value, index) =>
-              <td className={cell} key={index}>{value}</td>)}
-          </tr>)}
-        </ResultsTable> : <p className={muted}>Seçili grupta net oranı %40’ın altında öğrenci yok.</p>}
+          {support.map(({ row }) => {
+            const badge = branchLevel(branchPercent(row));
+            return <tr key={`${row.number}:${row.name}:${row.classroom}`}>
+              <th scope="row" className={cell}>
+                {row.name}
+                <span className={`mt-1 block w-fit rounded-full px-2 py-0.5 text-xs font-semibold ${levelColors[badge.id]}`}>{badge.label}</span>
+              </th>
+              {[row.classroom || '—', number(row.net), percent(row.net / row.questionCount)].map((value, index) =>
+                <td className={cell} key={index}>{value}</td>)}
+            </tr>;
+          })}
+        </ResultsTable> : <p className={muted}>Seçili grupta Kötü veya Geliştirilmeli düzeyinde öğrenci yok.</p>}
         <h3 className="font-bold">Kazanım eksikleri</h3>
         {outcomes.length > 0 ? <>
           <p className={muted}>Kazanımlar en düşük başarıdan en yükseğe sıralanır. Her satır, dosyada o kazanım için sonucu bulunan öğrencileri kapsar.</p>

@@ -2,11 +2,11 @@ import type { BranchMark, BranchResult } from './branchAnalysis';
 import { normalizeTurkish } from './examLabels';
 
 export const BRANCH_LEVELS = [
-  { id: 'very-good', label: 'Çok iyi', minimum: 80, range: '80–100' },
-  { id: 'good', label: 'İyi', minimum: 60, range: '60–79' },
-  { id: 'medium', label: 'Orta', minimum: 40, range: '40–59' },
-  { id: 'needs-work', label: 'Geliştirilmeli', minimum: 20, range: '20–39' },
-  { id: 'very-low', label: 'Çok kötü', minimum: 0, range: '0–19' },
+  { id: 'very-good', label: 'Çok iyi', minimum: 85, range: '85–100', needsSupport: false },
+  { id: 'good', label: 'İyi', minimum: 70, range: '70–84', needsSupport: false },
+  { id: 'medium', label: 'Orta', minimum: 54, range: '54–69', needsSupport: false },
+  { id: 'needs-work', label: 'Geliştirilmeli', minimum: 38, range: '38–53', needsSupport: true },
+  { id: 'very-low', label: 'Kötü', minimum: 0, range: '0–37', needsSupport: true },
 ] as const;
 
 export function branchLevel(percent: number) {
