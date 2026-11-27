@@ -85,11 +85,17 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
           <dt className="text-xs text-slate-600">{label}</dt><dd className="font-bold tabular-nums">{value}</dd>
         </div>)}
       </dl>
-      <div className="flex flex-wrap gap-2" aria-label="Net düzeylerine göre öğrenci sayısı">
-        {[...BRANCH_LEVELS].reverse().map(({ id, label, range }) => <span className={`rounded-full px-3 py-1 text-xs font-semibold ${levelColors[id]}`} key={id}>
-          {label} (%{range}) · {summary.levels.get(id)}
-        </span>)}
-      </div>
+      <dl className="grid auto-rows-fr grid-cols-4 gap-2 sm:grid-cols-5" aria-label="Net düzeylerine göre öğrenci sayısı">
+        {[...BRANCH_LEVELS].reverse().map(({ id, label, range }) => (
+          <div key={id} className={`col-span-2 flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-2 py-2 text-center last:col-start-2 sm:col-span-1 sm:last:col-start-auto ${levelColors[id]}`}>
+            <dt className="text-xs font-semibold leading-tight [overflow-wrap:anywhere]">
+              {label}
+              <span className="mt-0.5 block font-medium">%{range}</span>
+            </dt>
+            <dd className="text-base font-bold leading-tight tabular-nums">{summary.levels.get(id)}</dd>
+          </div>
+        ))}
+      </dl>
       <nav aria-label="Branş analizi görünümleri" className="grid grid-cols-3 gap-2 border-b border-slate-200 pb-2">
         {tabs.map((label) => <button type="button" key={label} aria-pressed={tab === label} onClick={() => setTab(label)}
           className={`branch-action ${tab === label ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-800'}`}>{label}</button>)}
