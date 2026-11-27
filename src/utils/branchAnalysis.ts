@@ -6,6 +6,7 @@ import { parseCellNumber, readResultsWorkbook } from './excelHandler';
 export interface BranchOptions {
   subject: SubjectKey;
   questionCount: number;
+  defaultClassroom?: string;
 }
 
 export type BranchMark = 'D' | 'Y' | 'B';
@@ -140,7 +141,8 @@ export function buildBranchResults(rows: BranchSourceRow[], options: BranchOptio
     }
     if (net > questionCount || net < -questionCount) throw new Error(`${name} satırında geçersiz net değeri var.`);
     const number = row.number?.replace(/\D/g, '') ?? '';
-    const classroom = row.classroom?.trim() ? normalizeClassName(row.classroom) : '';
+    const providedClassroom = row.classroom?.trim() || options.defaultClassroom?.trim();
+    const classroom = providedClassroom ? normalizeClassName(providedClassroom) : '';
     const key = buildStudentKey(number, name, classroom);
     const outcome = row.outcomes?.filter((item) => item.subject === options.subject) ?? outcomesFromItems(items, row.itemTopics, options.subject);
     if (!results.has(key)) results.set(key, {

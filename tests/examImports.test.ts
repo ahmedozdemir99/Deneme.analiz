@@ -231,6 +231,22 @@ test('text PDF branch tables import from one or two header rows', async () => {
     ]), { ...options, questionCount: 4 });
     assert.deepEqual(questionData[0].items, { 1: 'D', 2: 'Y', 3: 'B', 4: 'D' });
     assert.equal(questionData[0].net, 1.67);
+    for (const headers of [
+      ['', '', '', '#', 'Anaht', 'Stu', 'Pts', 'Poss'],
+      ['', '', '', '# Key', '', 'Stu', 'Pts Poss', ''],
+    ]) {
+      const zipGrade = textPdf([
+        headers,
+        ['Ogrenci:', 'Ornek Ogrenci', '', '1', 'A', 'A', '1.0', '1.0'],
+        ['', '', '', '2', 'A', 'B', '0.0', '1.0'],
+        ['', '', '', '3', 'C', '', '0.0', '1.0'],
+        ['', '', '', '4', 'A', 'A', '1.0', '1.0'],
+      ]);
+      const [result] = await parseBranchPdf(zipGrade.slice(0), { ...options, questionCount: 4, defaultClassroom: '8B' });
+      assert.deepEqual(result.items, { 1: 'D', 2: 'Y', 3: 'B', 4: 'D' });
+      assert.deepEqual([result.classroom, result.correct, result.incorrect, result.blank, result.net], ['8-B', 2, 1, 1, 1.67]);
+      await assert.rejects(parseBranchPdf(zipGrade.slice(0), options), /ZipGrade sayfasında 4 soru/);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

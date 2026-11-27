@@ -41,7 +41,7 @@ export function BranchAnalysisView() {
       }} />}
       <section className={panel}>
         <h1 className="text-xl font-bold text-slate-900">Branş Denemesi Analizi</h1>
-        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı PDF sonuç listesini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
+        <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı sonuç listesini, ZipGrade sonuç PDF’sini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
         <form className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
           if (!file || busy) return;
@@ -49,7 +49,9 @@ export function BranchAnalysisView() {
           const formData = new FormData(form);
           const name = String(formData.get('examName') ?? '').trim() || file.name.replace(/\.[^.]+$/, '');
           const date = String(formData.get('examDate') ?? '');
-          const options = { subject, questionCount };
+          const options = {
+            subject, questionCount, defaultClassroom: String(formData.get('defaultClassroom') ?? ''),
+          };
           setBusy(true);
           setError('');
           try {
@@ -91,7 +93,10 @@ export function BranchAnalysisView() {
           <label className="text-sm font-semibold">Deneme adı
             <input name="examName" maxLength={160} placeholder="Boşsa dosya adı kullanılır" className={field} disabled={busy} />
           </label>
-          <label className="text-sm font-semibold sm:col-span-2">Sonuç dosyası
+          <label className="text-sm font-semibold">Sınıf (isteğe bağlı)
+            <input name="defaultClassroom" maxLength={30} placeholder="Dosyada yoksa, ör. 8-B" className={field} disabled={busy} />
+          </label>
+          <label className="text-sm font-semibold sm:col-span-2 lg:col-span-1">Sonuç dosyası
             <input type="file" accept=".pdf,.xlsx,.xls,.csv" className={`${field} overflow-hidden text-ellipsis whitespace-nowrap file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:font-semibold file:text-slate-700`} disabled={busy} required
               onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
           </label>

@@ -1,5 +1,5 @@
 import { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
-import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
+import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchItems, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
@@ -1223,6 +1223,66 @@ function readBranchTableRows(lines: LineCluster[], columns: Map<BranchTableColum
   });
 }
 
+function readZipGradeBranchPage(lines: LineCluster[], options: BranchOptions): BranchSourceRow | undefined {
+  // PDF.js can combine adjacent header cells (such as "Pts Poss") into a single text item.
+  const header = lines.find(({ tokens }) => {
+    const text = tokens.map(({ str }) => str).join(' ').normalize('NFC');
+    const labels = normalizeTurkish(text);
+    return text.includes('#') && /\b(?:ANAHT|ANAHTAR|KEY) STU PTS POSS\b/.test(labels);
+  });
+  if (!header) return undefined;
+  const labels = header.tokens.flatMap(({ str, x, width }) =>
+    [...str.matchAll(/\S+/g)].map((word) => ({ str: word[0], x: x + width * word.index / str.length })));
+  const numberX = labels.find(({ str }) => str.trim() === '#')!.x;
+  const keyX = labels.find(({ str }) => ['ANAHT', 'ANAHTAR', 'KEY'].includes(normalizeTurkish(str)))!.x;
+  const studentX = labels.find(({ str }) => normalizeTurkish(str) === 'STU')!.x;
+  const pointsX = labels.find(({ str }) => normalizeTurkish(str) === 'PTS')!.x;
+  const possibleX = labels.find(({ str }) => normalizeTurkish(str) === 'POSS')!.x;
+  if (!(numberX < keyX && keyX < studentX && studentX < pointsX && pointsX < possibleX)) {
+    throw new Error('ZipGrade soru tablosunun sütunları okunamadı.');
+  }
+
+  const studentFields = new Map<string, string>();
+  for (const line of lines) {
+    const text = line.tokens.filter(({ x }) => x < numberX - 12).map(({ str }) => str).join(' ');
+    const separator = text.indexOf(':');
+    if (separator >= 0) studentFields.set(normalizeTurkish(text.slice(0, separator)), text.slice(separator + 1).trim());
+  }
+  const studentName = studentFields.get('OGRENCI') ?? studentFields.get('OGRENCI ADI') ??
+    studentFields.get('STUDENT') ?? studentFields.get('STUDENT NAME');
+  if (!studentName) throw new Error('ZipGrade öğrenci adı okunamadı.');
+
+  const marks: BranchItems = {};
+  const edges = [numberX - 14, (numberX + keyX) / 2, (keyX + studentX) / 2,
+    (studentX + pointsX) / 2, (pointsX + possibleX) / 2, possibleX + 55];
+  for (const { tokens } of lines.slice(lines.indexOf(header) + 1)) {
+    const cells = edges.slice(0, -1).map((left, index) =>
+      tokens.filter(({ x }) => x >= left && x < edges[index + 1]).map(({ str }) => str).join(' ').trim());
+    const question = Number(cells[0]);
+    if (!/^\d+$/.test(cells[0]) || question < 1 || !cells[1]) continue;
+    const earned = parseTrNumber(cells[3]);
+    const possible = parseTrNumber(cells[4]);
+    if (earned === null || possible === null || possible <= 0 ||
+        (earned !== 0 && Math.abs(earned - possible) > 1e-6) || marks[question]) {
+      throw new Error(`ZipGrade tablosunda ${question}. sorunun puanı geçersiz, kısmi veya yinelenmiş.`);
+    }
+    const answer = normalizeTurkish(cells[2]);
+    marks[question] = earned > 0 ? 'D' : !answer || answer === 'BOS' || answer === 'BLANK' ? 'B' : 'Y';
+  }
+
+  const questions = Object.keys(marks).length;
+  if (questions !== options.questionCount || Array.from({ length: questions }, (_, index) => index + 1).some((n) => !marks[n])) {
+    throw new Error(`ZipGrade sayfasında ${questions} soru okundu. Soru sayısını kontrol edin ve eksiksiz sonuç PDF’sini seçin.`);
+  }
+  return {
+    name: studentName,
+    number: studentFields.get('OGRENCI NO') ?? studentFields.get('STUDENT ID') ?? '',
+    classroom: studentFields.get('SINIF') ?? studentFields.get('CLASS') ?? '',
+    questionCount: questions,
+    items: marks,
+  };
+}
+
 export async function parseBranchPdf(source: ArrayBuffer, options: BranchOptions) {
   const task = pdfjsLib.getDocument({ data: new Uint8Array(source), useSystemFonts: true });
   try {
@@ -1248,6 +1308,12 @@ export async function parseBranchPdf(source: ArrayBuffer, options: BranchOptions
         // Some publishers use the same title for ordinary student result tables.
       }
       const lines = clusterLines(tokens);
+      const zipGrade = readZipGradeBranchPage(lines, options);
+      if (zipGrade) {
+        tableColumns = undefined;
+        rows.push(zipGrade);
+        continue;
+      }
       const table = findBranchTable(lines, options.subject);
       if (table) tableColumns = table.columns;
       if (tableColumns) rows.push(...readBranchTableRows(table ? lines.slice(table.index + 1) : lines, tableColumns));
