@@ -17,14 +17,14 @@ import {
   matchSubjectLabel,
   normalizeClassName,
   normalizeTurkish,
-} from './pdfParser';
+} from './examLabels';
 import {
   aggregateStudentKazanimlar,
   buildClassComparison,
   getSortedExams,
 } from './analytics';
 
-function parseCellNumber(val: unknown): number | null {
+export function parseCellNumber(val: unknown): number | null {
   if (val === null || val === undefined || val === '') return null;
   if (typeof val === 'number') return Number.isFinite(val) ? val : null;
   let cleaned = String(val).trim().replace(/%/g, '').replace(/\s+/g, '');
@@ -40,6 +40,22 @@ function parseCellNumber(val: unknown): number | null {
   }
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : null;
+}
+
+export function readResultsWorkbook(source: ArrayBuffer, fileName: string) {
+  if (!/\.csv$/i.test(fileName)) return XLSX.read(source, { type: 'array' });
+  const bytes = new Uint8Array(source);
+  let csv: string;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) csv = new TextDecoder('utf-16le').decode(bytes);
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) csv = new TextDecoder('utf-16be').decode(bytes);
+  else {
+    try {
+      csv = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      csv = new TextDecoder('windows-1254').decode(bytes);
+    }
+  }
+  return XLSX.read(csv, { type: 'string', raw: true });
 }
 
 function round2(n: number): number {
@@ -102,12 +118,12 @@ function detectMetricSuffix(norm: string): MetricType | null {
   if (last === 'D' || last === 'DOGRU' || last === 'DOG') return 'D';
   if (last === 'Y' || last === 'YANLIS' || last === 'YAN') return 'Y';
   if (last === 'B' || last === 'BOS') return 'B';
-  if (last === 'N' || last === 'NET') return 'N';
+  if (last === 'N' || last === 'NET' || last === 'NETI') return 'N';
   return null;
 }
 
 function detectExcelColumns(rows: unknown[][]): ColMapping | null {
-  const maxScan = Math.min(rows.length, 20);
+  const maxScan = Math.min(rows.length, 60);
   let bestMapping: ColMapping | null = null;
   let bestScore = -1;
 
@@ -121,7 +137,7 @@ function detectExcelColumns(rows: unknown[][]): ColMapping | null {
     let subHeaderHits = 0;
     for (let c = 0; c < nextRow.length; c++) {
       const n = normalizeTurkish(String(nextRow[c] ?? ''));
-      if (/^(D|Y|B|N|NET|DOGRU|YANLIS|BOS)$/.test(n)) subHeaderHits++;
+      if (/^(D|Y|B|N|NET|NETI|DOGRU|DOG|YANLIS|YAN|BOS)$/.test(n)) subHeaderHits++;
     }
     const hasTwoRowHeader = subHeaderHits >= 6;
 
@@ -155,10 +171,11 @@ function detectExcelColumns(rows: unknown[][]): ColMapping | null {
       const subNorm = normalizeTurkish(subRaw);
       const combinedNorm = `${topNorm} ${subNorm}`.trim();
 
+      const identityNorm = topNorm || subNorm;
       // Identity & meta columns
       if (
         noIdx === -1 &&
-        /^(O NO|ONO|OGR NO|OGRENCI NO|NUMARA|OKUL NO|NO)$/.test(topNorm)
+        /^(O NO|ONO|OGR NO|OGRENCI (?:NO(?:SU)?|NUMARA(?:SI)?)|NUMARA|OKUL (?:NO(?:SU)?|NUMARA(?:SI)?)|NO)$/.test(identityNorm)
       ) {
         noIdx = c;
         activeGroup = null;
@@ -166,19 +183,19 @@ function detectExcelColumns(rows: unknown[][]): ColMapping | null {
       }
       if (
         nameIdx === -1 &&
-        /(ADI SOYADI|AD SOYAD|OGRENCI ADI|OGRENCI|ISIM|^AD$|^ADI$)/.test(topNorm) &&
-        !topNorm.includes('SINAV')
+        (/^(?:(?:OGRENCI |OGR )?(?:ADI? SOYADI?|ADI?|ISIM)|OGRENCI)$/.test(identityNorm) ||
+          /\bADI? SOYADI?\b/.test(identityNorm) && !identityNorm.includes('SINAV'))
       ) {
         nameIdx = c;
         activeGroup = null;
         continue;
       }
-      if (surnameIdx === -1 && /^(SOYAD|SOYADI)$/.test(topNorm)) {
+      if (surnameIdx === -1 && /^(SOYAD|SOYADI)$/.test(identityNorm)) {
         surnameIdx = c;
         activeGroup = null;
         continue;
       }
-      if (sinifIdx === -1 && /^(SINIF|SUBE|SINIFI|SNF|SINIF SUBE)$/.test(topNorm)) {
+      if (sinifIdx === -1 && /^(SINIF|SUBE|SINIFI|SNF|SINIF SUBE|SINIF VE SUBE)$/.test(identityNorm)) {
         sinifIdx = c;
         activeGroup = null;
         continue;
@@ -210,12 +227,11 @@ function detectExcelColumns(rows: unknown[][]): ColMapping | null {
           if (topNorm.startsWith('TOPLAM') || topNorm === 'TOP') {
             activeGroup = 'toplam';
           } else {
-            const subj = matchSubjectLabel(topRaw);
-            if (subj) activeGroup = subj;
-            else if (topNorm.includes('DERECE') || topNorm.includes('SIRA')) activeGroup = null;
+            const subj = matchSubjectLabel(topNorm.replace(/\s+(D|DOGRU|DOG|Y|YANLIS|YAN|B|BOS|N|NET|NETI)$/, ''));
+            activeGroup = subj;
           }
         }
-        const metric = detectMetricSuffix(subNorm);
+        const metric = detectMetricSuffix(subNorm) ?? detectMetricSuffix(topNorm);
         if (activeGroup && metric) {
           if (activeGroup === 'toplam') {
             if (toplamCols[metric] === undefined) toplamCols[metric] = c;
@@ -232,7 +248,7 @@ function detectExcelColumns(rows: unknown[][]): ColMapping | null {
         }
         const metric = detectMetricSuffix(topNorm);
         const labelPart = metric
-          ? topNorm.replace(/\s+(D|DOGRU|DOG|Y|YANLIS|YAN|B|BOS|N|NET)$/, '').trim()
+          ? topNorm.replace(/\s+(D|DOGRU|DOG|Y|YANLIS|YAN|B|BOS|N|NET|NETI)$/, '').trim()
           : topNorm;
         const subj = matchSubjectLabel(labelPart);
         if (subj) {
@@ -288,7 +304,7 @@ export async function parseExamExcel(
     examOrder?: number;
   }
 ): Promise<ParsedExamBundle> {
-  const workbook = XLSX.read(source, { type: 'array' });
+  const workbook = readResultsWorkbook(source, fileName);
   if (!workbook.SheetNames.length) {
     throw new Error('Excel dosyasında okunabilir bir sayfa bulunamadı.');
   }
@@ -306,7 +322,8 @@ export async function parseExamExcel(
       blankrows: false,
     });
     const m = detectExcelColumns(rows);
-    if (m && (!mapping || m.matchedSubjectCount > mapping.matchedSubjectCount)) {
+    if (m && (!mapping || m.matchedSubjectCount > mapping.matchedSubjectCount ||
+      (m.matchedSubjectCount === mapping.matchedSubjectCount && mapping.nameIdx === -1 && m.nameIdx !== -1))) {
       mapping = m;
       selectedRows = rows;
       detectedSheetTitle = sheetName;

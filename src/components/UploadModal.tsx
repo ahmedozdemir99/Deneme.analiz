@@ -228,6 +228,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <p className="mt-1 text-xs text-slate-500">
               Desteklenen formatlar: <strong>PDF</strong> (Toplu Sonuç Belgesi / Okul Net Listesi) ve{' '}
               <strong>Excel (.xlsx, .xls, .csv)</strong> (tek veya çift satır başlıklı D/Y/B/Net tabloları).
+              Tek derslik dosyaları <strong>Branş Analizi</strong> sekmesinden yükleyin.
             </p>
           </div>
 

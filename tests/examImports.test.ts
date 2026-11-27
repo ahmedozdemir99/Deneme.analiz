@@ -1,0 +1,124 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import * as XLSX from 'xlsx';
+import { SUBJECT_LIST } from '../src/types/exam';
+import { parseBranchExcel } from '../src/utils/branchAnalysis';
+import { parseExamExcel } from '../src/utils/excelHandler';
+
+function workbook(rows: unknown[][], bookType: 'xlsx' | 'xls' = 'xlsx') {
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'Sonuç');
+  return XLSX.write(book, { bookType, type: 'array' }) as ArrayBuffer;
+}
+
+const subjectLabels = SUBJECT_LIST.map(({ label }) => label);
+const student = [3, 'Örnek Öğrenci', '8-B', ...subjectLabels.flatMap(() => [7, 3, null, 6]), 36, 415];
+const headings = ['Öğrenci Numarası', 'Ad Soyad', 'Sınıf',
+  ...subjectLabels.flatMap((label) => [`${label} Doğru`, `${label} Yanlış`, `${label} Boş`, `${label} Neti`]),
+  'Toplam Net', 'LGS Puanı'];
+
+test('full LGS imports XLSX, XLS, Turkish CSV and two-row subject headers', async () => {
+  const fixtures = [
+    ['tam.xlsx', workbook([headings, student])],
+    ['tam.xls', workbook([headings, student], 'xls')],
+    ['tam.csv', new TextEncoder().encode(headings.join(';') + '\n' + student.join(';')).buffer],
+    ['çift.xlsx', workbook([
+      ['Öğrenci Numarası', 'Adı Soyadı', 'Şube', ...subjectLabels.flatMap((label) => [label, '', '', '']), 'Toplam', 'LGS Puanı'],
+      ['', '', '', ...subjectLabels.flatMap(() => ['Doğru', 'Yanlış', 'Boş', 'Net']), 'Net', ''],
+      student,
+    ])],
+  ] as const;
+  for (const [name, data] of fixtures) {
+    const parsed = await parseExamExcel(data, name);
+    assert.equal(parsed.records.length, 1);
+    const { numara, sinif, record } = parsed.records[0];
+    assert.equal(numara, '3');
+    assert.equal(sinif, '8-B');
+    assert.equal(record.toplam.net, 36);
+    assert.equal(record.subjects.fen.net, 6);
+    assert.equal(record.lgsPuan, 415);
+  }
+});
+
+test('branch spreadsheets accept a single subject and keep net-only counts unknown', () => {
+  const grouped = workbook([
+    ['Öğrenci No', 'Adı Soyadı', 'Sınıf', 'Matematik'],
+    ['', '', '', 'D', 'Y', 'B', 'N'],
+    [1, 'Örnek Öğrenci', '8A', 11, 3, 1, 10],
+  ]);
+  const options = { subject: 'matematik', questionCount: 15 } as const;
+  const result = parseBranchExcel(grouped, options)[0];
+  assert.equal(result.net, 10);
+  assert.equal(result.questionCount, 15);
+  assert.equal(result.blank, 1);
+  assert.throws(() => parseBranchExcel(grouped, { ...options, subject: 'fen' }));
+  assert.throws(() => parseBranchExcel(workbook([headings, student]), options));
+  const csv = new TextEncoder().encode('Öğrenci No;Adı Soyadı;Matematik Neti\n2;İkinci Öğrenci;10,67');
+  const netOnly = parseBranchExcel(csv.buffer, options, 'net.csv')[0];
+  assert.equal(netOnly.name, 'İkinci Öğrenci');
+  assert.equal(netOnly.net, 10.67);
+  assert.equal(netOnly.correct, null);
+  assert.equal(netOnly.blank, null);
+});
+
+function textPdf(rows: string[][]) {
+  const columns = [32, 90, 255, 315, 375, 430, 485, 540];
+  const stream = rows.flatMap((row, index) => row.map((cell, column) =>
+    `BT /F1 10 Tf ${columns[column]} ${730 - 25 * index} Td (${cell}) Tj ET`)).join('\n') + '\n';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((object, index) => {
+    const offset = pdf.length;
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = pdf.length;
+  pdf += 'xref\n0 6\n0000000000 65535 f \n' + offsets.map((offset) =>
+    String(offset).padStart(10, '0') + ' 00000 n \n').join('');
+  return new TextEncoder().encode(pdf + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`).buffer;
+}
+
+test('text PDF branch tables import separately and the original full PDF still imports', async () => {
+  const dir = await mkdtemp(path.resolve('tests/.exam-imports-'));
+  try {
+    const modulePath = path.join(dir, 'pdf.mjs');
+    await build({
+      entryPoints: ['src/utils/pdfParser.ts'], outfile: modulePath, bundle: true, platform: 'node',
+      format: 'esm', packages: 'external',
+      plugins: [{ name: 'node-pdf-worker', setup(api) {
+        api.onResolve({ filter: /^pdfjs-dist$/ }, () => ({ path: 'pdfjs-dist/legacy/build/pdf.mjs', external: true }));
+        api.onResolve({ filter: /pdf\.worker\.min\.mjs\?url$/ }, () => ({ path: 'worker', namespace: 'test' }));
+        api.onLoad({ filter: /.*/, namespace: 'test' }, () => ({
+          contents: "export default import.meta.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');",
+        }));
+      } }],
+    });
+    const { parseBranchPdf, parseExamPdf } = await import(pathToFileURL(modulePath).href) as typeof import('../src/utils/pdfParser');
+    const row = ['42', 'Ornek Ogrenci', '8-A', '20', '15', '3', '2', '14,00'];
+    const options = { subject: 'matematik', questionCount: 20 } as const;
+    for (const headers of [
+      [['Ogrenci No', 'Adi Soyadi', 'Sinif', 'Soru', 'Dogru', 'Yanlis', 'Bos', 'Net']],
+      [['Ogrenci No', 'Adi Soyadi', 'Sinif', 'Matematik'], ['', '', '', 'Soru', 'Dogru', 'Yanlis', 'Bos', 'Net']],
+    ]) {
+      const parsed = await parseBranchPdf(textPdf([...headers, row]), options);
+      assert.deepEqual(parsed.map(({ number, net, blank }) => [number, net, blank]), [['42', 14, 2]]);
+    }
+    const assetDir = path.resolve('public/assets/aistudio');
+    const existingSample = (await readdir(assetDir)).find((name) => name.endsWith('.pdf'));
+    assert.ok(existingSample);
+    const full = await parseExamPdf(new Uint8Array(await readFile(path.join(assetDir, existingSample))), existingSample);
+    assert.ok(full.records.length > 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

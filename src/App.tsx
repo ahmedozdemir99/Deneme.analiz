@@ -28,12 +28,13 @@ import { OverviewView } from './components/OverviewView';
 import { ExamArchiveView } from './components/ExamArchiveView';
 import { SchoolWeaknessView } from './components/SchoolWeaknessView';
 import { UploadModal } from './components/UploadModal';
+import { BranchAnalysisView } from './components/BranchAnalysisView';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { CloudBackupControl } from './components/CloudBackupControl';
 import { LeaderboardView } from './components/LeaderboardView';
 import { useCloudBackup } from './hooks/useCloudBackup';
 
-type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses';
+type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses' | 'branches';
 
 const BUNDLED_SAMPLE_PDF_URL =
   '/assets/aistudio/zekiayvenli-8s_n_f-i_leyenzeka-1denme-toplu_a3d32d85.pdf';
@@ -214,6 +215,7 @@ export default function App() {
     { id: 'overview', label: 'Genel Bakış', icon: <BarChart3 className="h-4 w-4" /> },
     { id: 'archive', label: 'Deneme Arşivi', icon: <FolderArchive className="h-4 w-4" /> },
     { id: 'weaknesses', label: 'Eksik Analizi', icon: <AlertCircle className="h-4 w-4" /> },
+    { id: 'branches', label: 'Branş Analizi', icon: <BarChart3 className="h-4 w-4" /> },
   ];
 
   const schoolLabel = archive.exams[0]?.schoolName;
@@ -291,7 +293,7 @@ export default function App() {
         </div>
 
         {/* Mobile navigation row */}
-        <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
+        <div className="mx-auto grid max-w-7xl grid-cols-6 gap-1 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -340,7 +342,9 @@ export default function App() {
         )}
 
         {/* Initial Sample PDF Parsing State */}
-        {isLoadingSample && archive.students.length === 0 ? (
+        {activeTab === 'branches' ? (
+          <BranchAnalysisView />
+        ) : isLoadingSample && archive.students.length === 0 ? (
           <div className="mx-auto my-12 max-w-lg rounded-xl border border-slate-200 bg-white p-8 text-center">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-700" />
             <h2 className="mt-4 text-base font-bold text-slate-900">
