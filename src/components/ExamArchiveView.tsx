@@ -17,6 +17,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { ExamArchiveState } from '../types/exam';
+import { makeArchiveJson, readArchiveJson } from '../utils/branchArchive';
+import type { BranchExam } from '../utils/branchHistory';
 import { formatTrNumber } from '../utils/analytics';
 import { downloadExcelTemplate, exportSchoolArchiveToExcel } from '../utils/excelHandler';
 import { UseCloudBackupResult } from '../hooks/useCloudBackup';
@@ -28,7 +30,7 @@ interface ExamArchiveViewProps {
   onOpenUpload: () => void;
   onDeleteExam: (examId: string) => void;
   onRenameExam: (examId: string, newName: string) => void;
-  onImportJson: (state: ExamArchiveState) => void;
+  onImportJson: (state: ExamArchiveState, branchExams?: BranchExam[]) => void;
 }
 
 export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
@@ -48,7 +50,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
   const sortedExams = [...state.exams].sort((a, b) => a.examOrder - b.examOrder);
 
   const handleExportBackup = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const blob = new Blob([makeArchiveJson(state)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -61,15 +63,11 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text) as ExamArchiveState;
-      if (!parsed || !Array.isArray(parsed.exams) || !Array.isArray(parsed.students)) {
-        throw new Error('Geçersiz arşiv yedek dosyası.');
-      }
+      const { state: imported, branchExams } = readArchiveJson(await file.text());
       setImportError(null);
-      onImportJson(parsed);
-    } catch {
-      setImportError('JSON yedek dosyası okunamadı. Lütfen geçerli bir arşiv yedeği seçin.');
+      onImportJson(imported, branchExams);
+    } catch (reason) {
+      setImportError(reason instanceof Error ? reason.message : 'JSON yedek dosyası yüklenemedi.');
     } finally {
       if (jsonInputRef.current) jsonInputRef.current.value = '';
     }
@@ -81,7 +79,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
         <div>
           <h1 className="text-xl font-extrabold text-slate-900">Yüklenen Deneme Arşivi</h1>
           <p className="text-xs text-slate-500">
-            Yeni deneme PDF&apos;leri ekleyin, mevcut sınavları düzenleyin veya arşiv yedeğinizi dışa aktarın.
+            JSON Yedek, tam LGS ve branş denemelerini tek dosyaya alır. JSON Yükle, tam LGS arşivini geri yükler ve branş kayıtlarını mevcut branş arşiviyle birleştirir.
           </p>
         </div>
 

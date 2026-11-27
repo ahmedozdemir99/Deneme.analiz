@@ -11,6 +11,8 @@ import { parseBranchExcel } from '../src/utils/branchAnalysis';
 import {
   branchHistoryChange, branchHistoryStudents, branchStudentHistory, branchSubjectAverages, type BranchExam,
 } from '../src/utils/branchHistory';
+import { makeArchiveJson, mergeBranchBackup, readArchiveJson, removeBranchStudent } from '../src/utils/branchArchive';
+import { branchStudentId } from '../src/utils/branchHistory';
 import { parseExamExcel } from '../src/utils/excelHandler';
 
 function workbook(rows: unknown[][], bookType: 'xlsx' | 'xls' = 'xlsx') {
@@ -100,6 +102,35 @@ test('branch history orders archived exams, follows the same student and filters
   const all = branchSubjectAverages(exams, 'all', id);
   assert.equal(all.find(({ key }) => key === 'fen')?.studentAverage, 10);
   assert.equal(all.find(({ key }) => key === 'turkce')?.groupAverage, null);
+});
+
+test('Deneme Arşivi JSON includes branch records, restores missing results and accepts old backups', () => {
+  const student = {
+    name: 'Örnek Öğrenci', number: '101', classroom: '8-A',
+    questionCount: 3, correct: 1, incorrect: 1, blank: 1, net: 0.67,
+    items: { 1: 'D', 2: 'B', 3: 'Y' } as const,
+    outcomes: [{ subject: 'matematik' as const, text: 'Sayılar', soru: 3, dogru: 1, yanlis: 1, bos: 1, basariYuzdesi: 33 }],
+  };
+  const other = { ...student, name: 'Başka Öğrenci', number: '102' };
+  const exam: BranchExam = { id: 'math-1', name: 'Matematik 1', date: '2026-11-24', subject: 'matematik', results: [student, other] };
+  const exams = [exam, { ...exam, id: 'math-2' }];
+  const state = { exams: [], students: [] };
+  const backup = readArchiveJson(makeArchiveJson(state, exams));
+  assert.deepEqual(backup.state, state);
+  assert.deepEqual(backup.branchExams, exams);
+  assert.equal(readArchiveJson(JSON.stringify(state)).branchExams, undefined);
+  assert.throws(() => readArchiveJson(JSON.stringify({ ...state, branchExams: [{ ...exam, results: [{ ...student, items: { 9: 'D' } }] }] })));
+  const identity = branchStudentId(student);
+  const single = removeBranchStudent(exams, identity, exam.id);
+  assert.deepEqual(single.map((item) => item.results.length), [1, 2]);
+  assert.deepEqual(removeBranchStudent(exams, identity).map((item) => item.results.length), [1, 1]);
+  const restored = mergeBranchBackup(single, backup.branchExams!);
+  assert.equal(restored.addedExams, 0);
+  assert.equal(restored.addedResults, 1);
+  assert.deepEqual(restored.exams[0].results, [other, student]);
+  assert.equal(mergeBranchBackup(restored.exams, backup.branchExams!).addedResults, 0);
+  assert.equal(mergeBranchBackup([exam], exams).addedExams, 1);
+  assert.throws(() => mergeBranchBackup(exams, [{ ...exam, name: 'Farklı deneme' }]), /değiştirilmedi/);
 });
 
 test('branch item results support rank ties, difficulty, discrimination and imported outcomes', () => {

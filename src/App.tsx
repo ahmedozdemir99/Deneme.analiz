@@ -10,6 +10,8 @@ import {
   Trophy,
 } from 'lucide-react';
 import { ExamArchiveState, ParsedExamBundle, StudentExamRecord } from './types/exam';
+import { mergeBranchBackup, readBranchExams, updateBranchExams } from './utils/branchArchive';
+import type { BranchExam } from './utils/branchHistory';
 import {
   addManualExamToStudent,
   deduplicateArchiveState,
@@ -135,16 +137,33 @@ export default function App() {
   );
 
   const handleImportJson = useCallback(
-    (imported: ExamArchiveState) => {
+    (imported: ExamArchiveState, incomingBranches?: BranchExam[]) => {
       const { state: cleaned } = deduplicateArchiveState(imported);
-      persistAndSet(cleaned);
+      const previousBranches = incomingBranches ? readBranchExams() : [];
+      const merged = incomingBranches ? mergeBranchBackup(previousBranches, incomingBranches) : undefined;
+      const branchesChanged = Boolean(merged && (merged.addedExams || merged.addedResults));
+      if (merged && branchesChanged) {
+        try {
+          updateBranchExams(() => merged.exams);
+        } catch {
+          throw new Error('Branş kayıtları kaydedilemedi. Tarayıcının depolama alanını kontrol edin.');
+        }
+      }
+      const saved = saveArchiveState(cleaned);
+      if (!saved.ok) {
+        if (branchesChanged) updateBranchExams(() => previousBranches);
+        throw new Error(saved.error ?? 'Arşiv kaydedilemedi.');
+      }
+      setArchive(cleaned);
       setSelectedStudentId(null);
+      const branchCount = merged
+        ? ` Branş arşivine ${merged.addedExams} deneme ve ${merged.addedResults} öğrenci sonucu eklendi.` : '';
       setBannerMessage({
         type: 'info',
-        text: `Yedek başarıyla yüklendi (${cleaned.exams.length} deneme, ${cleaned.students.length} öğrenci).`,
+        text: `Yedek yüklendi (${cleaned.exams.length} tam LGS denemesi, ${cleaned.students.length} öğrenci).${branchCount}`,
       });
     },
-    [persistAndSet]
+    []
   );
 
   const handleSelectStudent = (studentId: string) => {

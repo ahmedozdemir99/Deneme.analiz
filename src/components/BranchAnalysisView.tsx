@@ -3,23 +3,14 @@ import { Download, FileUp } from 'lucide-react';
 import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
 import { downloadBranchTemplate, parseBranchExcel } from '../utils/branchAnalysis';
 import type { BranchExam } from '../utils/branchHistory';
+import { readBranchExams, updateBranchExams } from '../utils/branchArchive';
+import { BranchArchiveControls } from './BranchArchiveControls';
 import { BranchHistory } from './BranchHistory';
 import { BranchReport } from './BranchReport';
 import { parseBranchPdf } from '../utils/pdfParser';
 
-const archiveKey = 'deneme-analiz:branch-exams:v1';
 const field = 'mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const panel = 'rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
-
-function readBranchExams(): BranchExam[] {
-  try {
-    const saved: BranchExam[] = JSON.parse(localStorage.getItem(archiveKey) || '[]');
-    return Array.isArray(saved) ? saved.filter((exam) =>
-      exam && typeof exam.id === 'string' && Object.hasOwn(SUBJECT_MAP, exam.subject) && Array.isArray(exam.results)) : [];
-  } catch {
-    return [];
-  }
-}
 
 export function BranchAnalysisView() {
   const [exams, setExams] = useState(readBranchExams);
@@ -68,8 +59,7 @@ export function BranchAnalysisView() {
               ? await parseBranchPdf(source, options)
               : parseBranchExcel(source, options, file.name);
             const item: BranchExam = { id: crypto.randomUUID(), name, date, subject, results: parsed };
-            const next = [item, ...readBranchExams()];
-            localStorage.setItem(archiveKey, JSON.stringify(next));
+            const next = updateBranchExams((current) => [item, ...current]);
             setExams(next);
             setExamId(item.id);
             if (filter !== 'all') setFilter(subject);
@@ -136,6 +126,11 @@ export function BranchAnalysisView() {
           </label>}
         </div>
         <h2 className="mt-4 font-semibold text-slate-900">{SUBJECT_MAP[exam.subject].label} · {exam.name}</h2>
+        <BranchArchiveControls key={`archive:${exam.id}`} exam={exam} onChange={(next) => {
+          setExams(next);
+          const remaining = next.find((item) => item.id === exam.id);
+          if (!remaining?.results.some((row) => row.classroom === classroom)) setClassroom('');
+        }} />
         <BranchReport key={exam.id} allRows={exam.results} rows={results} />
       </section>}
     </div>
