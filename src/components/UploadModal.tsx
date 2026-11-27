@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  RefreshCw,
   Download,
 } from 'lucide-react';
 import { ParsedExamBundle } from '../types/exam';
@@ -24,8 +23,6 @@ interface UploadModalProps {
     examCount: number;
   };
   nextExamOrder: number;
-  onReloadSamplePdf: () => Promise<void>;
-  isLoadingSample: boolean;
 }
 
 interface UploadResultSummary {
@@ -57,8 +54,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   onClose,
   onBundlesParsed,
   nextExamOrder,
-  onReloadSamplePdf,
-  isLoadingSample,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -228,6 +223,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <p className="mt-1 text-xs text-slate-500">
               Desteklenen formatlar: <strong>PDF</strong> (Toplu Sonuç Belgesi / Okul Net Listesi) ve{' '}
               <strong>Excel (.xlsx, .xls, .csv)</strong> (tek veya çift satır başlıklı D/Y/B/Net tabloları).
+              Tek derslik dosyaları <strong>Branş Analizi</strong> sekmesinden yükleyin.
             </p>
           </div>
 
@@ -382,20 +378,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/60 px-6 py-3.5 rounded-b-xl">
-          <button
-            type="button"
-            onClick={async () => {
-              await onReloadSamplePdf();
-              onClose();
-            }}
-            disabled={isParsing || isLoadingSample}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 transition-colors hover:text-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoadingSample ? 'animate-spin' : ''}`} />
-            Yüklü Örnek PDF&apos;i Tekrar Aktar
-          </button>
-
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-slate-50/60 px-6 py-3.5 rounded-b-xl">
           <div className="flex items-center gap-2">
             <button
               type="button"

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   FileUp,
   GraduationCap,
@@ -6,12 +6,10 @@ import {
   BarChart3,
   FolderArchive,
   AlertCircle,
-  Loader2,
   X,
   Trophy,
 } from 'lucide-react';
 import { ExamArchiveState, ParsedExamBundle, StudentExamRecord } from './types/exam';
-import { parseExamPdf } from './utils/pdfParser';
 import {
   addManualExamToStudent,
   deduplicateArchiveState,
@@ -28,16 +26,13 @@ import { OverviewView } from './components/OverviewView';
 import { ExamArchiveView } from './components/ExamArchiveView';
 import { SchoolWeaknessView } from './components/SchoolWeaknessView';
 import { UploadModal } from './components/UploadModal';
+import { BranchAnalysisView } from './components/BranchAnalysisView';
 import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import { CloudBackupControl } from './components/CloudBackupControl';
 import { LeaderboardView } from './components/LeaderboardView';
 import { useCloudBackup } from './hooks/useCloudBackup';
 
-type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses';
-
-const BUNDLED_SAMPLE_PDF_URL =
-  '/assets/aistudio/zekiayvenli-8s_n_f-i_leyenzeka-1denme-toplu_a3d32d85.pdf';
-const BUNDLED_SAMPLE_FILE_NAME = 'zekiayvenli-8sınıf-işleyenzeka-1denme-toplu.pdf';
+type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses' | 'branches';
 
 export default function App() {
   const [archive, setArchive] = useState<ExamArchiveState>(() => {
@@ -47,8 +42,6 @@ export default function App() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
-  const [isLoadingSample, setIsLoadingSample] = useState(false);
-  const [sampleProgress, setSampleProgress] = useState<{ cur: number; total: number } | null>(null);
   const [bannerMessage, setBannerMessage] = useState<{
     type: 'info' | 'error';
     text: string;
@@ -73,54 +66,6 @@ export default function App() {
     persistAndSet(next);
     queueNewExams(next, newIds);
   }, [archive.exams, persistAndSet, queueNewExams]);
-
-  const loadBundledSamplePdf = useCallback(async () => {
-    setIsLoadingSample(true);
-    setSampleProgress({ cur: 0, total: 120 });
-    try {
-      const res = await fetch(BUNDLED_SAMPLE_PDF_URL);
-      if (!res.ok) {
-        throw new Error('Örnek PDF dosyası yüklenemedi.');
-      }
-      const buffer = await res.arrayBuffer();
-      const bundle = await parseExamPdf(buffer, BUNDLED_SAMPLE_FILE_NAME, {
-        examOrder: 1,
-        isSample: true,
-        onProgress: (cur, total) => setSampleProgress({ cur, total }),
-      });
-
-      setArchive((prev) => {
-        // Avoid duplicating the bundled exam if already present with exact same name & sample flag
-        const filteredPrev = prev;
-        const alreadyLoaded = filteredPrev.exams.find(
-          (e) => e.isSample && e.fileName === BUNDLED_SAMPLE_FILE_NAME
-        );
-        const base = alreadyLoaded ? deleteExamFromState(filteredPrev, alreadyLoaded.id) : filteredPrev;
-        const { nextState } = mergeExamBundle(base, bundle);
-        saveArchiveState(nextState);
-        return nextState;
-      });
-    } catch (err) {
-      setBannerMessage({
-        type: 'error',
-        text:
-          err instanceof Error
-            ? err.message
-            : 'Yüklü örnek PDF okunurken bir sorun oluştu.',
-      });
-    } finally {
-      setIsLoadingSample(false);
-      setSampleProgress(null);
-    }
-  }, []);
-
-  // On first launch with empty archive, automatically import the user's attached PDF
-  useEffect(() => {
-    const existing = loadArchiveState();
-    if (!existing || (existing.exams.length === 0 && existing.students.length === 0)) {
-      void loadBundledSamplePdf();
-    }
-  }, [loadBundledSamplePdf]);
 
   const nextExamOrder = useMemo(() => {
     if (archive.exams.length === 0) return 1;
@@ -214,6 +159,7 @@ export default function App() {
     { id: 'overview', label: 'Genel Bakış', icon: <BarChart3 className="h-4 w-4" /> },
     { id: 'archive', label: 'Deneme Arşivi', icon: <FolderArchive className="h-4 w-4" /> },
     { id: 'weaknesses', label: 'Eksik Analizi', icon: <AlertCircle className="h-4 w-4" /> },
+    { id: 'branches', label: 'Branş Analizi', icon: <BarChart3 className="h-4 w-4" /> },
   ];
 
   const schoolLabel = archive.exams[0]?.schoolName;
@@ -291,7 +237,7 @@ export default function App() {
         </div>
 
         {/* Mobile navigation row */}
-        <div className="mx-auto grid max-w-7xl grid-cols-5 gap-1 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
+        <div className="mx-auto grid max-w-7xl grid-cols-6 gap-1 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -339,37 +285,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Initial Sample PDF Parsing State */}
-        {isLoadingSample && archive.students.length === 0 ? (
-          <div className="mx-auto my-12 max-w-lg rounded-xl border border-slate-200 bg-white p-8 text-center">
-            <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-700" />
-            <h2 className="mt-4 text-base font-bold text-slate-900">
-              Deneme Sonuç PDF&apos;i Analiz Ediliyor
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Tüm öğrencilerin ders bazlı doğru, yanlış, boş, net ve kazanım sonuçları okunuyor...
-            </p>
-            {sampleProgress && sampleProgress.total > 0 && (
-              <div className="mt-5">
-                <div className="mb-1.5 flex justify-between font-mono text-xs text-slate-600 tabular-nums">
-                  <span>
-                    Sayfa {sampleProgress.cur} / {sampleProgress.total}
-                  </span>
-                  <span>
-                    %{Math.round((sampleProgress.cur / sampleProgress.total) * 100)}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full bg-blue-700 transition-all duration-150"
-                    style={{
-                      width: `${Math.round((sampleProgress.cur / sampleProgress.total) * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+        {activeTab === 'branches' ? (
+          <BranchAnalysisView />
         ) : activeTab === 'students' && selectedStudent ? (
           <StudentDetailView
             student={selectedStudent}
@@ -415,8 +332,6 @@ export default function App() {
             onDeleteExam={handleDeleteExam}
             onRenameExam={handleRenameExam}
             onImportJson={handleImportJson}
-            onReloadSamplePdf={loadBundledSamplePdf}
-            isLoadingSample={isLoadingSample}
           />
         ) : (
           <SchoolWeaknessView state={archive} onSelectStudent={handleSelectStudent} />
@@ -434,8 +349,6 @@ export default function App() {
         onClose={() => setIsUploadOpen(false)}
         onBundlesParsed={handleBundlesParsed}
         nextExamOrder={nextExamOrder}
-        onReloadSamplePdf={loadBundledSamplePdf}
-        isLoadingSample={isLoadingSample}
       />
       <OfflineIndicator />
     </div>

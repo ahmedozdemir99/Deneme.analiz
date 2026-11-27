@@ -7,7 +7,6 @@ import {
   X,
   Download,
   Upload,
-  RefreshCw,
   FileText,
   FileSpreadsheet,
   Cloud,
@@ -30,8 +29,6 @@ interface ExamArchiveViewProps {
   onDeleteExam: (examId: string) => void;
   onRenameExam: (examId: string, newName: string) => void;
   onImportJson: (state: ExamArchiveState) => void;
-  onReloadSamplePdf: () => Promise<void>;
-  isLoadingSample: boolean;
 }
 
 export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
@@ -41,8 +38,6 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
   onDeleteExam,
   onRenameExam,
   onImportJson,
-  onReloadSamplePdf,
-  isLoadingSample,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -290,15 +285,6 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
               >
                 <FileUp className="h-3.5 w-3.5" />
                 PDF Yükle
-              </button>
-              <button
-                type="button"
-                onClick={onReloadSamplePdf}
-                disabled={isLoadingSample}
-                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg text-center border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${isLoadingSample ? 'animate-spin' : ''}`} />
-                Örnek Okul PDF&apos;ini Yükle
               </button>
             </div>
           </div>

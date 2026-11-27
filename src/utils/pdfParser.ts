@@ -1,3 +1,5 @@
+import { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
+import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
 import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
@@ -16,6 +18,8 @@ import {
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
+export { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
+
 export interface TextToken {
   x: number;
   y: number;
@@ -26,46 +30,6 @@ export interface TextToken {
 interface LineCluster {
   y: number;
   tokens: TextToken[];
-}
-
-export function normalizeTurkish(str: string): string {
-  return str
-    .normalize('NFC')
-    .replace(/İ/g, 'I')
-    .replace(/ı/g, 'i')
-    .replace(/Ğ/g, 'G')
-    .replace(/ğ/g, 'g')
-    .replace(/Ü/g, 'U')
-    .replace(/ü/g, 'u')
-    .replace(/Ş/g, 'S')
-    .replace(/ş/g, 's')
-    .replace(/Ö/g, 'O')
-    .replace(/ö/g, 'o')
-    .replace(/Ç/g, 'C')
-    .replace(/ç/g, 'c')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .trim();
-}
-
-export function normalizeClassName(raw: string): string {
-  const cleaned = raw.trim().toUpperCase().replace(/\s+/g, '');
-  // Convert 8/A, 8.A, 8A -> 8-A
-  const m = cleaned.match(/^(\d{1,2})[./\-_]?([A-ZÇĞİÖŞÜ0-9]+)$/);
-  if (m) {
-    return `${m[1]}-${m[2]}`;
-  }
-  return cleaned || '8-A';
-}
-
-export function buildStudentKey(numara: string, name: string, sinif: string): string {
-  const cleanNo = (numara || '').replace(/\D/g, '').replace(/^0+/, '');
-  const cleanName = normalizeTurkish(name).replace(/\s+/g, '_');
-  const cleanSinif = normalizeTurkish(normalizeClassName(sinif)).replace(/\s+/g, '_');
-  if (cleanNo) {
-    return `NO_${cleanNo}`;
-  }
-  return `NAME_${cleanName}_${cleanSinif}`.slice(0, 120);
 }
 
 function parseTrNumber(raw: string | undefined): number | null {
@@ -210,73 +174,6 @@ function clusterLines(tokens: TextToken[], yTolerance = 3.5): LineCluster[] {
   return lines;
 }
 
-export function matchSubjectLabel(raw: string): SubjectKey | null {
-  const norm = normalizeTurkish(raw);
-  if (!norm) return null;
-  if (
-    norm === 'TURKCE' ||
-    norm === 'TUR' ||
-    norm === 'TR' ||
-    norm.includes('SOZEL TUR') ||
-    norm.startsWith('TURKCE')
-  ) {
-    return 'turkce';
-  }
-  if (
-    norm === 'TARIH' ||
-    norm === 'TAR' ||
-    norm === 'INK' ||
-    norm === 'INKILAP' ||
-    norm === 'SOSYAL' ||
-    norm.includes('INKILAP') ||
-    norm.includes('SOZEL TAR') ||
-    norm.includes('T C INK') ||
-    norm.includes('TC INK') ||
-    norm.startsWith('TARIH')
-  ) {
-    return 'tarih';
-  }
-  if (
-    norm === 'DIN' ||
-    norm === 'DKAB' ||
-    norm.startsWith('DIN K') ||
-    norm.startsWith('DIN ') ||
-    norm.includes('SOZEL DIN') ||
-    norm.includes('AHLAK')
-  ) {
-    return 'din';
-  }
-  if (
-    norm === 'INGILIZCE' ||
-    norm === 'ING' ||
-    norm === 'YABANCI DIL' ||
-    norm === 'YAB DIL' ||
-    norm === 'YAB' ||
-    norm.startsWith('INGILIZ') ||
-    norm.includes('SOZEL ING') ||
-    norm.includes('YABANCI DIL')
-  ) {
-    return 'ingilizce';
-  }
-  if (
-    norm === 'MATEMATIK' ||
-    norm === 'MAT' ||
-    norm.startsWith('MATEMAT') ||
-    norm.includes('SAYISAL MAT')
-  ) {
-    return 'matematik';
-  }
-  if (
-    norm === 'FEN' ||
-    norm === 'FB' ||
-    norm.startsWith('FEN BIL') ||
-    norm.startsWith('FEN VE') ||
-    norm.includes('SAYISAL FEN')
-  ) {
-    return 'fen';
-  }
-  return null;
-}
 
 function splitMergedNumericToken(tok: TextToken): TextToken[] {
   const raw = tok.str.trim();
@@ -860,6 +757,7 @@ interface ParsedSonucBelgesi {
   dereceler: ExamRanks;
   katilimlar?: ExamParticipants;
   subjects: Record<SubjectKey, SubjectScore>;
+  subjectRows: Map<SubjectKey, Omit<BranchSourceRow, 'name' | 'number' | 'classroom'>>;
   toplam: SubjectScore;
   kazanimlar: KazanimResult[];
 }
@@ -1096,6 +994,7 @@ function parseSonucBelgesiPage(tokens: TextToken[], pageWidth: number): ParsedSo
     fen: createEmptySubjectScore('fen'),
   };
 
+  const subjectRows: ParsedSonucBelgesi['subjectRows'] = new Map();
   let toplamOverrides:
     | {
         soru?: number;
@@ -1162,6 +1061,7 @@ function parseSonucBelgesiPage(tokens: TextToken[], pageWidth: number): ParsedSo
 
     const subjKey = matchSubjectLabel(labelStr);
     if (subjKey && dogru !== undefined && yanlis !== undefined) {
+      subjectRows.set(subjKey, { questionCount: soru, correct: dogru, incorrect: yanlis, blank: bos, net });
       subjects[subjKey] = createSubjectScore(subjKey, dogru, yanlis, net ?? null, soru ?? null, {
         bosOverride: bos ?? null,
         basariYuzdesi,
@@ -1245,9 +1145,119 @@ function parseSonucBelgesiPage(tokens: TextToken[], pageWidth: number): ParsedSo
     dereceler,
     katilimlar,
     subjects,
+    subjectRows,
     toplam,
     kazanimlar,
   };
+}
+
+function findBranchTable(lines: LineCluster[], subject: SubjectKey) {
+  const isMetricHeader = (line: LineCluster | undefined) => line && line.tokens.length >= 2 && line.tokens.every(({ str }) => {
+    const column = branchQuestionColumn(str) ?? branchColumn(str, subject);
+    return column && column !== 'name' && column !== 'number' && column !== 'classroom';
+  });
+  let upperHeader: { columns: Map<BranchTableColumn, number>; subjects: Set<SubjectKey> } | undefined;
+  for (const [index, line] of lines.entries()) {
+    const columns = new Map<BranchTableColumn, number>();
+    const explicit = new Set<SubjectKey>();
+    for (let i = 0; i < line.tokens.length; i++) {
+      const first = line.tokens[i];
+      for (let size = Math.min(5, line.tokens.length - i); size >= 1; size--) {
+        const segment = line.tokens.slice(i, i + size);
+        const label = segment.map(({ str }) => str).join(' ');
+        const channel = branchQuestionColumn(label) ?? branchColumn(label, subject);
+        if (!channel) continue;
+        // Keep separate header cells from being combined just because they are on the same line.
+        if (segment.some((cell, pos) => pos > 0 && cell.x - segment[pos - 1].x - segment[pos - 1].width > 20)) continue;
+        if (!columns.has(channel)) columns.set(channel, first.x);
+        i += size - 1;
+        break;
+      }
+    }
+    for (const token of line.tokens) {
+      const normalized = normalizeTurkish(token.str)
+        .replace(/\s+(SORU|D|DOGRU|Y|YANLIS|B|BOS|N|NET|NETI)$/, '');
+      const detected = matchSubjectLabel(normalized);
+      if (detected) explicit.add(detected);
+    }
+    if (upperHeader && !columns.has('name') && isMetricHeader(line)) {
+      for (const [key, position] of upperHeader.columns) {
+        if (!columns.has(key)) columns.set(key, position);
+      }
+      for (const group of upperHeader.subjects) explicit.add(group);
+    }
+    if (explicit.size > 1 || (explicit.size && !explicit.has(subject))) {
+      upperHeader = undefined;
+      continue;
+    }
+    if (validBranchColumns(columns.keys()) && !isMetricHeader(lines[index + 1])) return { index, columns };
+    upperHeader = columns.has('name') ? {
+      columns: new Map([...columns].filter(([key]) => key === 'name' || key === 'number' || key === 'classroom')),
+      subjects: explicit,
+    } : undefined;
+  }
+  return undefined;
+}
+
+function readBranchTableRows(lines: LineCluster[], columns: Map<BranchTableColumn, number>): BranchSourceRow[] {
+  const anchors = [...columns.entries()].sort((a, b) => a[1] - b[1]);
+  return lines.map((line) => {
+    const values = new Map<BranchTableColumn, string>();
+    for (const token of line.tokens) {
+      const index = anchors.findIndex(([, x], pos) => {
+        const next = anchors[pos + 1];
+        if (!next) return true;
+        // Text uses left edges. Short scores in right-aligned cells use the nearest header.
+        const threshold = anchors[pos][0] === 'name' ? next[1] - 8 : (x + next[1]) / 2;
+        return token.x < threshold;
+      });
+      const [key, x] = anchors[index];
+      if (index === 0 && token.x < x - 18) continue;
+      values.set(key, [values.get(key), token.str].filter(Boolean).join(' '));
+    }
+    return {
+      ...Object.fromEntries(values),
+      name: values.get('name') ?? '',
+      items: readBranchItems(values),
+    };
+  });
+}
+
+export async function parseBranchPdf(source: ArrayBuffer, options: BranchOptions) {
+  const task = pdfjsLib.getDocument({ data: new Uint8Array(source), useSystemFonts: true });
+  try {
+    const pdf = await task.promise;
+    const rows: BranchSourceRow[] = [];
+    let tableColumns: Map<BranchTableColumn, number> | undefined;
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      const tokens = content.items.flatMap((item) => 'str' in item && item.str.trim() ? [
+        { x: item.transform[4], y: item.transform[5], width: item.width || 0, str: item.str },
+      ] : []);
+      const header = normalizeTurkish(tokens.filter(({ y }) => y > viewport.height * 0.85).map(({ str }) => str).join(' '));
+      if (/SONUC BELGESI|OGRENCI KARNESI|BIREYSEL KARNE/.test(header)) {
+        tableColumns = undefined;
+        const result = parseSonucBelgesiPage(tokens, viewport.width);
+        const row = result?.subjectRows.get(options.subject);
+        if (result && row && result.subjectRows.size === 1) {
+          rows.push({ ...row, name: result.name, number: result.numara, classroom: result.sinif, outcomes: result.kazanimlar });
+          continue;
+        }
+        // Some publishers use the same title for ordinary student result tables.
+      }
+      const lines = clusterLines(tokens);
+      const table = findBranchTable(lines, options.subject);
+      if (table) tableColumns = table.columns;
+      if (tableColumns) rows.push(...readBranchTableRows(table ? lines.slice(table.index + 1) : lines, tableColumns));
+    }
+    const results = buildBranchResults(rows, options);
+    if (!results.length) throw new Error('Seçilen branş için okunabilir öğrenci sonuçları bulunamadı. Metin içeren sonuç PDF’si yükleyin veya Excel şablonunu kullanın.');
+    return results;
+  } finally {
+    await task.destroy();
+  }
 }
 
 export async function parseExamPdf(
