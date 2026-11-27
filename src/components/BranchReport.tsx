@@ -15,20 +15,25 @@ const levelColors = {
   'needs-work': 'bg-orange-100 text-orange-900',
   'very-low': 'bg-rose-100 text-rose-900',
 };
-const inputClass = 'min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
+const inputClass = 'min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const cell = 'whitespace-nowrap px-3 py-2 tabular-nums';
 const muted = 'text-sm text-slate-600';
 const number = (value: number | null) => value === null ? '—' : formatTrNumber(value);
 const percent = (value: number) => '%' + formatTrNumber(value * 100, 1);
 
-function ResultsTable({ label, headings, children }: { label: string; headings: string[]; children: React.ReactNode }) {
+function ResultsTable({ label, headings, children, mobileCards = false }: {
+  label: string;
+  headings: string[];
+  children: React.ReactNode;
+  mobileCards?: boolean;
+}) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-left text-sm" aria-label={label}>
-        <thead className="bg-slate-100 text-slate-700">
-          <tr>{headings.map((heading) => <th key={heading} scope="col" className={cell}>{heading}</th>)}</tr>
+    <div className={`min-w-0 max-w-full overflow-x-auto rounded-lg border border-slate-200${mobileCards ? ' branch-ranking' : ''}`}>
+      <table className="w-full text-left text-sm" aria-label={label} role="table">
+        <thead className="bg-slate-100 text-slate-700" role="rowgroup">
+          <tr role="row">{headings.map((heading) => <th key={heading} scope="col" role="columnheader" className={cell}>{heading}</th>)}</tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">{children}</tbody>
+        <tbody className="divide-y divide-slate-100" role="rowgroup">{children}</tbody>
       </table>
     </div>
   );
@@ -103,20 +108,22 @@ export function BranchReport({ allRows, rows }: { allRows: BranchResult[]; rows:
           </label>
         </div>
         <p className={muted}>Düzey, netin soru sayısına oranına göre belirlenir. Negatif netler en düşük düzeye girer. Eşit netler aynı sırayı paylaşır.</p>
-        {visible.length ? <ResultsTable label="Branş sıralaması" headings={['Genel sıra', ...(rows !== allRows ? ['Sınıf sırası'] : []), 'Öğrenci', 'Sınıf', 'Soru', 'Doğru', 'Yanlış', 'Boş', 'Net', 'Düzey']}>
+        {visible.length ? <ResultsTable label="Branş sıralaması" mobileCards headings={['Genel sıra', ...(rows !== allRows ? ['Sınıf sırası'] : []), 'Öğrenci', 'Sınıf', 'Soru', 'Doğru', 'Yanlış', 'Boş', 'Net', 'Düzey']}>
           {visible.map(({ row, rank }) => {
             const badge = branchLevel(branchPercent(row));
-            return <tr key={`${row.number}:${row.name}:${row.classroom}`}>
-              <td className={cell}>{overall.get(row)}</td>
-              {rows !== allRows && <td className={cell}>{rank}</td>}
-              <th scope="row" className={cell}>
-                <button className="text-left font-semibold text-blue-800 underline underline-offset-2" type="button"
+            return <tr key={`${row.number}:${row.name}:${row.classroom}`} role="row">
+              <td className={cell} role="cell" data-label="Genel sıra">{overall.get(row)}</td>
+              {rows !== allRows && <td className={cell} role="cell" data-label="Sınıf sırası">{rank}</td>}
+              <th scope="row" className={cell} role="rowheader">
+                <button className="max-w-full whitespace-normal text-left font-semibold text-blue-800 underline underline-offset-2 [overflow-wrap:anywhere] sm:max-w-48" type="button"
                   aria-expanded={student === row} onClick={() => setSelected(student === row ? undefined : row)}>{row.name}</button>
                 {row.number && <span className="ml-2 font-normal text-slate-500">{row.number}</span>}
               </th>
-              {[row.classroom || '—', row.questionCount, row.correct, row.incorrect, row.blank, number(row.net)]
-                .map((value, index) => <td key={index} className={cell}>{value ?? '—'}</td>)}
-              <td className={cell}><span className={`rounded-full px-2 py-1 text-xs font-semibold ${levelColors[badge.id]}`}>{badge.label}</span></td>
+              {[
+                ['Sınıf', row.classroom || '—'], ['Soru', row.questionCount], ['Doğru', row.correct],
+                ['Yanlış', row.incorrect], ['Boş', row.blank], ['Net', number(row.net)],
+              ].map(([label, value]) => <td key={label} role="cell" data-label={String(label)} className={cell}>{value ?? '—'}</td>)}
+              <td className={cell} role="cell" data-label="Düzey"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${levelColors[badge.id]}`}>{badge.label}</span></td>
             </tr>;
           })}
         </ResultsTable> : <p className={muted}>Filtreye uyan öğrenci bulunamadı.</p>}

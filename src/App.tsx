@@ -184,7 +184,7 @@ export default function App() {
   const schoolLabel = archive.exams[0]?.schoolName;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#F8FAFC] text-[#0F172A]">
+    <div className={`flex min-h-screen flex-col bg-[#F8FAFC] text-[#0F172A]${activeTab === 'branches' ? ' overflow-x-clip' : ''}`}>
       {/* Clean 3-Zone Top Bar */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
         <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 lg:px-8">
@@ -256,7 +256,7 @@ export default function App() {
         </div>
 
         {/* Mobile navigation row */}
-        <div className="mx-auto grid max-w-7xl grid-cols-6 gap-1 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
+        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-1 min-[360px]:grid-cols-6 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -274,7 +274,7 @@ export default function App() {
                 }`}
               >
                 {item.icon}
-                <span className="max-w-full text-center">{item.label}</span>
+                <span className="max-w-full text-center [overflow-wrap:anywhere]">{item.label}</span>
               </button>
             );
           })}

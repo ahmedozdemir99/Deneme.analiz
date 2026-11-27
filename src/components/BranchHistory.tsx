@@ -4,8 +4,8 @@ import { SUBJECT_LIST, SUBJECT_MAP, type SubjectKey } from '../types/exam';
 import { formatTrNumber } from '../utils/analytics';
 import { branchHistoryChange, branchHistoryStudents, branchStudentHistory, branchSubjectAverages, type BranchExam } from '../utils/branchHistory';
 
-const field = 'mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-const panel = 'space-y-4 rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
+const field = 'mt-1 block min-h-10 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 py-2 sm:px-3 text-sm';
+const panel = 'min-w-0 space-y-4 [overflow-wrap:anywhere] rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
 const dateLabel = (date: string) => date.split('-').reverse().join('.');
 const netLabel = (value: number | null) => value === null ? '—' : formatTrNumber(value);
 const signed = (value: number) => (value > 0 ? '+' : '') + formatTrNumber(value);
@@ -52,14 +52,14 @@ export function BranchHistory({ exams, filter, onFilterChange }: {
         </> : <p className="mt-1 text-sm text-slate-600">Net değişimini görmek için aynı branşta tarihli en az iki öğrenci sonucu gerekir.</p>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-semibold">Ders filtresi
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="min-w-0 text-sm font-semibold">Ders filtresi
           <select className={field} value={filter} onChange={(event) => onFilterChange(event.target.value as SubjectKey | 'all')}>
             <option value="all">Tüm dersler</option>
             {subjects.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
           </select>
         </label>
-        <label className="text-sm font-semibold">Öğrenci
+        <label className="min-w-0 text-sm font-semibold">Öğrenci
           <select className={field} value={studentId} onChange={(event) => setPreferredStudent(event.target.value)}>
             {students.map(([id, row]) => <option key={id} value={id}>
               {row.name}{row.number ? ` · ${row.number}` : ''}{row.classroom ? ` · ${row.classroom}` : ''}
@@ -69,22 +69,30 @@ export function BranchHistory({ exams, filter, onFilterChange }: {
       </div>
 
       <div className="space-y-3 border-t border-slate-200 pt-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-end justify-between gap-2">
           <h3 className="font-bold">Denemelere göre net gelişimi</h3>
-          {filter === 'all' && studentSubjects.length > 1 && <label className="text-sm font-semibold">Grafikteki ders
+          {filter === 'all' && studentSubjects.length > 1 && <label className="min-w-0 text-sm font-semibold">Grafikteki ders
             <select className={field} value={timelineSubject} onChange={(event) => setPreferredSubject(event.target.value as SubjectKey)}>
               {studentSubjects.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
             </select>
           </label>}
         </div>
         {active ? <>
-          <div className="h-60 w-full min-w-0" aria-label={`${subjectName} net gelişimi çizgi grafiği`}>
+          <div className="h-52 w-full min-w-0 overflow-hidden sm:h-60" aria-label={`${subjectName} net gelişimi çizgi grafiği`}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={history} margin={{ top: 12, right: 16, bottom: 8, left: 0 }} accessibilityLayer>
                 <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
                 <XAxis dataKey="id" tickFormatter={(id) => dateLabel(byId.get(id)?.date ?? '')} minTickGap={18} tick={{ fontSize: 11 }} />
                 <YAxis width={40} domain={['auto', 'auto']} tick={{ fontSize: 11 }} />
                 <Tooltip
+                  allowEscapeViewBox={{ x: false, y: false }}
+                  contentStyle={{
+                    maxWidth: 'min(15rem, calc(100vw - 6rem))',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                    fontSize: 12,
+                  }}
+                  labelStyle={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}
                   labelFormatter={(id) => { const point = byId.get(String(id)); return point ? `${dateLabel(point.date)} · ${point.name}` : ''; }}
                   formatter={(value) => [netLabel(typeof value === 'number' ? value : null), 'Net']}
                 />
@@ -93,29 +101,33 @@ export function BranchHistory({ exams, filter, onFilterChange }: {
               </LineChart>
             </ResponsiveContainer>
           </div>
-          <label className="block max-w-lg text-sm font-semibold">Grafikteki deneme
+          <label className="block w-full min-w-0 max-w-lg text-sm font-semibold">Grafikteki deneme
             <select className={field} value={active.id} onChange={(event) => setSelectedPoint(event.target.value)}>
               {history.map((point) => <option key={point.id} value={point.id}>{dateLabel(point.date)} · {point.name} · {netLabel(point.net)} net</option>)}
             </select>
           </label>
+          <p className="rounded-lg bg-slate-50 px-2 py-2 sm:px-3 text-sm text-slate-700">
+            <span className="block font-semibold">{active.name}</span>
+            {dateLabel(active.date)} · {netLabel(active.net)} net
+          </p>
         </> : <p className="text-sm text-slate-600">Bu öğrenci ve ders için tarihli branş denemesi bulunamadı.</p>}
       </div>
 
       <div className="space-y-2 border-t border-slate-200 pt-4">
         <h3 className="font-bold">Ders ortalamaları</h3>
         <p className="text-sm text-slate-600">Grup ortalaması ilgili dersin arşivdeki tüm öğrenci sonuçlarını kapsar. Derslerin soru sayıları farklı olabilir.</p>
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full text-left text-sm">
+        <div className="min-w-0 max-w-full overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full table-fixed text-left text-xs sm:text-sm">
             <thead className="bg-slate-100 text-slate-700"><tr>
               {['Ders', 'Deneme', 'Grup ortalaması', 'Öğrenci ortalaması'].map((label) =>
-                <th key={label} scope="col" className="px-3 py-2">{label}</th>)}
+                <th key={label} scope="col" className="px-2 py-2 sm:px-3">{label}</th>)}
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {averages.map((item) => <tr key={item.key}>
-                <th scope="row" className="px-3 py-2 font-medium">{item.label}</th>
-                <td className="px-3 py-2">{item.examCount || '—'}</td>
-                <td className="px-3 py-2 tabular-nums" title={`${item.groupCount} sonuç`}>{netLabel(item.groupAverage)}</td>
-                <td className="px-3 py-2 tabular-nums" title={`${item.studentCount} sonuç`}>{netLabel(item.studentAverage)}</td>
+                <th scope="row" className="px-2 py-2 sm:px-3 font-medium">{item.label}</th>
+                <td className="px-2 py-2 sm:px-3">{item.examCount || '—'}</td>
+                <td className="px-2 py-2 sm:px-3 tabular-nums" title={`${item.groupCount} sonuç`}>{netLabel(item.groupAverage)}</td>
+                <td className="px-2 py-2 sm:px-3 tabular-nums" title={`${item.studentCount} sonuç`}>{netLabel(item.studentAverage)}</td>
               </tr>)}
             </tbody>
           </table>

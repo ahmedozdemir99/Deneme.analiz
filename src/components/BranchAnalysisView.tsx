@@ -10,7 +10,7 @@ import { BranchReport } from './BranchReport';
 import { parseBranchPdf } from '../utils/pdfParser';
 
 const field = 'mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
-const panel = 'rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
+const panel = 'min-w-0 [overflow-wrap:anywhere] rounded-xl border border-slate-200 bg-white p-4 sm:p-5';
 
 export function BranchAnalysisView() {
   const [exams, setExams] = useState(readBranchExams);
@@ -34,7 +34,7 @@ export function BranchAnalysisView() {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       {exams.length > 0 && <BranchHistory exams={exams} filter={filter} onFilterChange={(value) => {
         setFilter(value);
         setClassroom('');
@@ -42,7 +42,7 @@ export function BranchAnalysisView() {
       <section className={panel}>
         <h1 className="text-xl font-bold text-slate-900">Branş Denemesi Analizi</h1>
         <p className="mt-1 text-sm text-slate-600">Tek dersin metin tabanlı PDF sonuç listesini veya Excel dosyasını yükleyin. Soru bazında analiz için S1, S2, … sütunlarına D, Y veya B yazın. Branş sonuçları bu tarayıcıda kendi arşivine kaydedilir.</p>
-        <form className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={async (event) => {
+        <form className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" onSubmit={async (event) => {
           event.preventDefault();
           if (!file || busy) return;
           const form = event.currentTarget;
@@ -92,16 +92,16 @@ export function BranchAnalysisView() {
             <input name="examName" maxLength={160} placeholder="Boşsa dosya adı kullanılır" className={field} disabled={busy} />
           </label>
           <label className="text-sm font-semibold sm:col-span-2">Sonuç dosyası
-            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className={field} disabled={busy} required
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv" className={`${field} overflow-hidden text-ellipsis whitespace-nowrap`} disabled={busy} required
               onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
           </label>
-          <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:col-span-2 lg:col-span-3">
             <button type="submit" disabled={busy || !file}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-60">
-              <FileUp aria-hidden="true" className="size-4" /> {busy ? 'Okunuyor…' : 'Analiz et ve kaydet'}
+              className="inline-flex min-h-10 max-w-full items-center gap-2 rounded-lg bg-blue-700 px-3 text-left text-sm sm:px-4 font-semibold text-white disabled:opacity-60">
+              <FileUp aria-hidden="true" className="size-4 shrink-0" /> {busy ? 'Okunuyor…' : 'Analiz et ve kaydet'}
             </button>
-            <button type="button" onClick={() => downloadBranchTemplate(questionCount)} className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-blue-700 underline">
-              <Download aria-hidden="true" className="size-4" /> Branş Excel şablonu
+            <button type="button" onClick={() => downloadBranchTemplate(questionCount)} className="inline-flex min-h-10 max-w-full items-center gap-2 text-left text-sm font-semibold text-blue-700 underline">
+              <Download aria-hidden="true" className="size-4 shrink-0" /> Branş Excel şablonu
             </button>
           </div>
           {error && <p role="alert" className="text-sm font-medium text-red-700 sm:col-span-2 lg:col-span-3">{error}</p>}
@@ -110,7 +110,7 @@ export function BranchAnalysisView() {
 
       {exam && <section className={panel}>
         <div className="flex flex-wrap items-end gap-3">
-          <label className="min-w-0 flex-1 text-sm font-semibold">Branş arşivi
+          <label className="w-full min-w-0 text-sm font-semibold sm:w-auto sm:flex-1">Branş arşivi
             <select value={exam.id} className={field} onChange={(event) => {
               setExamId(event.target.value);
               setClassroom('');
@@ -118,7 +118,7 @@ export function BranchAnalysisView() {
               {filteredExams.map((item) => <option key={item.id} value={item.id}>{item.name} · {SUBJECT_MAP[item.subject].label} · {item.date}</option>)}
             </select>
           </label>
-          {classrooms.length > 0 && <label className="text-sm font-semibold">Sınıf
+          {classrooms.length > 0 && <label className="w-full min-w-0 text-sm font-semibold sm:w-auto">Sınıf
             <select className={field} value={classroom} onChange={(event) => setClassroom(event.target.value)}>
               <option value="">Tümü</option>
               {classrooms.map((item) => <option key={item}>{item}</option>)}

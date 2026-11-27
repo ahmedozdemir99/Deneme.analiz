@@ -3,7 +3,7 @@ import { removeBranchStudent, updateBranchExams } from '../utils/branchArchive';
 import { branchStudentId, type BranchExam } from '../utils/branchHistory';
 
 type Pending = { type: 'exam' } | { type: 'student'; id: string; name: string; allExams: boolean };
-const danger = 'min-h-10 rounded-lg border border-red-200 px-3 text-sm font-semibold text-red-800 hover:bg-red-50 disabled:opacity-50';
+const danger = 'min-h-10 max-w-full rounded-lg border border-red-200 px-3 py-1.5 text-left text-sm font-semibold text-red-800 hover:bg-red-50 disabled:opacity-50';
 
 export function BranchArchiveControls({ exam, onChange }: { exam: BranchExam; onChange: (exams: BranchExam[]) => void }) {
   const [studentId, setStudentId] = useState('');
@@ -28,7 +28,7 @@ export function BranchArchiveControls({ exam, onChange }: { exam: BranchExam; on
             <select value={student ? studentId : ''} onChange={(event) => {
               setStudentId(event.target.value);
               setPending(null);
-            }} className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            }} className="mt-1 block min-h-10 w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
               <option value="">Öğrenci seç</option>
               {exam.results.map((row) => {
                 const id = branchStudentId(row);
