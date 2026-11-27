@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -88,7 +88,7 @@ function textPdf(rows: string[][]) {
   return new TextEncoder().encode(pdf + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`).buffer;
 }
 
-test('text PDF branch tables import separately and the original full PDF still imports', async () => {
+test('text PDF branch tables import from one or two header rows', async () => {
   const dir = await mkdtemp(path.resolve('tests/.exam-imports-'));
   try {
     const modulePath = path.join(dir, 'pdf.mjs');
@@ -103,7 +103,7 @@ test('text PDF branch tables import separately and the original full PDF still i
         }));
       } }],
     });
-    const { parseBranchPdf, parseExamPdf } = await import(pathToFileURL(modulePath).href) as typeof import('../src/utils/pdfParser');
+    const { parseBranchPdf } = await import(pathToFileURL(modulePath).href) as typeof import('../src/utils/pdfParser');
     const row = ['42', 'Ornek Ogrenci', '8-A', '20', '15', '3', '2', '14,00'];
     const options = { subject: 'matematik', questionCount: 20 } as const;
     for (const headers of [
@@ -113,11 +113,6 @@ test('text PDF branch tables import separately and the original full PDF still i
       const parsed = await parseBranchPdf(textPdf([...headers, row]), options);
       assert.deepEqual(parsed.map(({ number, net, blank }) => [number, net, blank]), [['42', 14, 2]]);
     }
-    const assetDir = path.resolve('public/assets/aistudio');
-    const existingSample = (await readdir(assetDir)).find((name) => name.endsWith('.pdf'));
-    assert.ok(existingSample);
-    const full = await parseExamPdf(new Uint8Array(await readFile(path.join(assetDir, existingSample))), existingSample);
-    assert.ok(full.records.length > 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -326,9 +326,15 @@ export function loadArchiveState(): ExamArchiveState | null {
     if (!parsed || !Array.isArray(parsed.exams) || !Array.isArray(parsed.students)) {
       return null;
     }
-    const { state: cleaned, removedDuplicates } = deduplicateArchiveState(parsed);
-    if (removedDuplicates > 0) {
-      // Automatically persist healed state so duplicates are gone immediately
+    const bundledSamples = parsed.exams.filter(
+      (exam) => exam.isSample && exam.fileName === 'zekiayvenli-8sınıf-işleyenzeka-1denme-toplu.pdf'
+    );
+    const archive = bundledSamples.reduce(
+      (state, exam) => deleteExamFromState(state, exam.id),
+      parsed
+    );
+    const { state: cleaned, removedDuplicates } = deduplicateArchiveState(archive);
+    if (bundledSamples.length > 0 || removedDuplicates > 0) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
       } catch {

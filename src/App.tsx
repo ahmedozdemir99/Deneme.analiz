@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   FileUp,
   GraduationCap,
@@ -6,12 +6,10 @@ import {
   BarChart3,
   FolderArchive,
   AlertCircle,
-  Loader2,
   X,
   Trophy,
 } from 'lucide-react';
 import { ExamArchiveState, ParsedExamBundle, StudentExamRecord } from './types/exam';
-import { parseExamPdf } from './utils/pdfParser';
 import {
   addManualExamToStudent,
   deduplicateArchiveState,
@@ -36,10 +34,6 @@ import { useCloudBackup } from './hooks/useCloudBackup';
 
 type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses' | 'branches';
 
-const BUNDLED_SAMPLE_PDF_URL =
-  '/assets/aistudio/zekiayvenli-8s_n_f-i_leyenzeka-1denme-toplu_a3d32d85.pdf';
-const BUNDLED_SAMPLE_FILE_NAME = 'zekiayvenli-8sınıf-işleyenzeka-1denme-toplu.pdf';
-
 export default function App() {
   const [archive, setArchive] = useState<ExamArchiveState>(() => {
     return loadArchiveState() ?? EMPTY_ARCHIVE_STATE;
@@ -48,8 +42,6 @@ export default function App() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
-  const [isLoadingSample, setIsLoadingSample] = useState(false);
-  const [sampleProgress, setSampleProgress] = useState<{ cur: number; total: number } | null>(null);
   const [bannerMessage, setBannerMessage] = useState<{
     type: 'info' | 'error';
     text: string;
@@ -74,54 +66,6 @@ export default function App() {
     persistAndSet(next);
     queueNewExams(next, newIds);
   }, [archive.exams, persistAndSet, queueNewExams]);
-
-  const loadBundledSamplePdf = useCallback(async () => {
-    setIsLoadingSample(true);
-    setSampleProgress({ cur: 0, total: 120 });
-    try {
-      const res = await fetch(BUNDLED_SAMPLE_PDF_URL);
-      if (!res.ok) {
-        throw new Error('Örnek PDF dosyası yüklenemedi.');
-      }
-      const buffer = await res.arrayBuffer();
-      const bundle = await parseExamPdf(buffer, BUNDLED_SAMPLE_FILE_NAME, {
-        examOrder: 1,
-        isSample: true,
-        onProgress: (cur, total) => setSampleProgress({ cur, total }),
-      });
-
-      setArchive((prev) => {
-        // Avoid duplicating the bundled exam if already present with exact same name & sample flag
-        const filteredPrev = prev;
-        const alreadyLoaded = filteredPrev.exams.find(
-          (e) => e.isSample && e.fileName === BUNDLED_SAMPLE_FILE_NAME
-        );
-        const base = alreadyLoaded ? deleteExamFromState(filteredPrev, alreadyLoaded.id) : filteredPrev;
-        const { nextState } = mergeExamBundle(base, bundle);
-        saveArchiveState(nextState);
-        return nextState;
-      });
-    } catch (err) {
-      setBannerMessage({
-        type: 'error',
-        text:
-          err instanceof Error
-            ? err.message
-            : 'Yüklü örnek PDF okunurken bir sorun oluştu.',
-      });
-    } finally {
-      setIsLoadingSample(false);
-      setSampleProgress(null);
-    }
-  }, []);
-
-  // On first launch with empty archive, automatically import the user's attached PDF
-  useEffect(() => {
-    const existing = loadArchiveState();
-    if (!existing || (existing.exams.length === 0 && existing.students.length === 0)) {
-      void loadBundledSamplePdf();
-    }
-  }, [loadBundledSamplePdf]);
 
   const nextExamOrder = useMemo(() => {
     if (archive.exams.length === 0) return 1;
@@ -341,39 +285,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Initial Sample PDF Parsing State */}
         {activeTab === 'branches' ? (
           <BranchAnalysisView />
-        ) : isLoadingSample && archive.students.length === 0 ? (
-          <div className="mx-auto my-12 max-w-lg rounded-xl border border-slate-200 bg-white p-8 text-center">
-            <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-700" />
-            <h2 className="mt-4 text-base font-bold text-slate-900">
-              Deneme Sonuç PDF&apos;i Analiz Ediliyor
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Tüm öğrencilerin ders bazlı doğru, yanlış, boş, net ve kazanım sonuçları okunuyor...
-            </p>
-            {sampleProgress && sampleProgress.total > 0 && (
-              <div className="mt-5">
-                <div className="mb-1.5 flex justify-between font-mono text-xs text-slate-600 tabular-nums">
-                  <span>
-                    Sayfa {sampleProgress.cur} / {sampleProgress.total}
-                  </span>
-                  <span>
-                    %{Math.round((sampleProgress.cur / sampleProgress.total) * 100)}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full bg-blue-700 transition-all duration-150"
-                    style={{
-                      width: `${Math.round((sampleProgress.cur / sampleProgress.total) * 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
         ) : activeTab === 'students' && selectedStudent ? (
           <StudentDetailView
             student={selectedStudent}
@@ -419,8 +332,6 @@ export default function App() {
             onDeleteExam={handleDeleteExam}
             onRenameExam={handleRenameExam}
             onImportJson={handleImportJson}
-            onReloadSamplePdf={loadBundledSamplePdf}
-            isLoadingSample={isLoadingSample}
           />
         ) : (
           <SchoolWeaknessView state={archive} onSelectStudent={handleSelectStudent} />
@@ -438,8 +349,6 @@ export default function App() {
         onClose={() => setIsUploadOpen(false)}
         onBundlesParsed={handleBundlesParsed}
         nextExamOrder={nextExamOrder}
-        onReloadSamplePdf={loadBundledSamplePdf}
-        isLoadingSample={isLoadingSample}
       />
       <OfflineIndicator />
     </div>
