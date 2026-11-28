@@ -1,4 +1,5 @@
-import { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
+import { isAttendedExamRecord } from './analytics';
+import { buildStudentKey, examRosterKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
 import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchItems, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
@@ -562,7 +563,7 @@ function parseTabularListPage(
     if (leftToks.length === 0) continue;
 
     // Class token anywhere in left section matching e.g. 8-A, 8/B, 8C, 8-XX
-    const sinifTok = leftToks.find((t) => /^\d{1,2}[./\-]?[A-ZÇĞİÖŞÜ0-9]{1,3}$/i.test(t.str.trim()));
+    const sinifTok = leftToks.find((t) => /^\d{1,2}(?:[./-][A-ZÇĞİÖŞÜ0-9]{1,3}|[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ0-9]{0,2})$/i.test(t.str.trim()));
 
     // Number tokens (sira and/or student no)
     const intLeftToks = leftToks.filter(
@@ -588,7 +589,7 @@ function parseTabularListPage(
     const name = nameToks.map((t) => t.str.trim()).join(' ').replace(/\s+/g, ' ').trim();
     if (!name || name.length < 3) continue;
     // Skip header repetitions
-    if (/(OGRENCI|AD SOYAD|ADI SOYADI|ISIM|TOPLAM|ORTALAMA)/i.test(normalizeTurkish(name))) {
+    if (/^(OGRENCI|AD SOYAD|ADI SOYADI|ISIM|TOPLAM|ORTALAMA)$/.test(normalizeTurkish(name))) {
       continue;
     }
 
@@ -737,7 +738,7 @@ function parseTabularListPage(
     rowsOut.push({
       numara: noVal,
       name,
-      sinif: sinifTok ? normalizeClassName(sinifTok.str) : '8-A',
+      sinif: sinifTok ? normalizeClassName(sinifTok.str) : '8-XX',
       subjects,
       toplam,
       lgsPuan,
@@ -1354,6 +1355,7 @@ export async function parseExamPdf(
   const okulListRows: OkulListRow[] = [];
   const sonucPages: ParsedSonucBelgesi[] = [];
   let activeTabularLayout: DynamicTableLayout | null = null;
+  let activeClassroom: string | undefined;
 
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     const page = await pdfDoc.getPage(pageNum);
@@ -1380,76 +1382,68 @@ export async function parseExamPdf(
         .join(' ')
     );
 
+    const classList = headerProbe.match(/(?:^|\s)(\d{1,2}\s+[A-Z]) (?:SINIFI|SUBE) NET LISTESI/);
+    const explicitSchoolList = /(?:OKUL|KURUM) NET LISTESI|SONUC LISTESI|SIRALI LISTE/.test(headerProbe);
+    if (explicitSchoolList) activeClassroom = undefined;
+    if (classList) activeClassroom = normalizeClassName(classList[1]);
+    const explicitClassList = /SINIFI NET LISTESI|SUBE NET LISTESI/.test(headerProbe);
+    const isPerClassList = Boolean(activeClassroom) || explicitClassList;
+
     // Skip class/school summary-only report cards (ŞUBE KARNESİ / KURUM KARNESİ)
     if (headerProbe.includes('SUBE KARNESI') || headerProbe.includes('KURUM KARNESI')) {
       activeTabularLayout = null;
+      activeClassroom = undefined;
       options?.onProgress?.(pageNum, totalPages);
       continue;
     }
 
     // Check individual student report card first
-    if (
-      headerProbe.includes('SONUC BELGESI') ||
-      headerProbe.includes('OGRENCI KARNESI') ||
-      headerProbe.includes('BIREYSEL KARNE')
-    ) {
-      activeTabularLayout = null;
+    if (!explicitSchoolList && !explicitClassList && /SONUC BELGESI|OGRENCI KARNESI|BIREYSEL KARNE/.test(headerProbe)) {
       const parsed = parseSonucBelgesiPage(tokens, pageWidth);
-      if (parsed) sonucPages.push(parsed);
-      options?.onProgress?.(pageNum, totalPages);
-      continue;
+      if (parsed) {
+        sonucPages.push(parsed);
+        activeTabularLayout = null;
+        activeClassroom = undefined;
+        options?.onProgress?.(pageNum, totalPages);
+        continue;
+      }
     }
 
-    // Check OKUL NET LİSTESİ / KURUM NET LİSTESİ / generic student result list
-    // Avoid double-parsing per-class SINIFI NET LISTESI pages when OKUL NET LISTESI already exists
-    const isPerClassList =
-      headerProbe.includes('SINIFI NET LISTESI') || headerProbe.includes('SUBE NET LISTESI');
-
-    if (
-      headerProbe.includes('OKUL NET LISTESI') ||
-      headerProbe.includes('KURUM NET LISTESI') ||
-      headerProbe.includes('SONUC LISTESI') ||
-      headerProbe.includes('SIRALI LISTE') ||
-      (!isPerClassList && activeTabularLayout !== null)
-    ) {
-      const detected = parseTabularListPage(
-        tokens,
-        pageWidth,
-        okulListMeta,
-        okulListRows,
-        activeTabularLayout
-      );
-      activeTabularLayout = detected;
-      options?.onProgress?.(pageNum, totalPages);
-      continue;
-    }
-
-    // Fallback: if neither known title matched and we haven't found students yet, try dynamic table detection
-    if (!isPerClassList) {
-      const maybeLayout = parseTabularListPage(
-        tokens,
-        pageWidth,
-        okulListMeta,
-        okulListRows,
-        null
-      );
-      if (maybeLayout) {
-        activeTabularLayout = maybeLayout;
+    // Class lists can be the only roster. Parse them alongside the school list and
+    // remove repeated rows later, when their actual student identity is available.
+    const pageMeta: OkulListMeta = isPerClassList
+      ? { generalSubjectNets: {}, schoolSubjectNets: {} }
+      : okulListMeta;
+    const startingRow = okulListRows.length;
+    activeTabularLayout = parseTabularListPage(
+      tokens,
+      pageWidth,
+      pageMeta,
+      okulListRows,
+      activeTabularLayout
+    );
+    if (activeClassroom) {
+      for (let index = startingRow; index < okulListRows.length; index++) {
+        if (okulListRows[index].sinif === '8-XX') {
+          okulListRows[index].sinif = activeClassroom;
+        }
       }
     }
 
     options?.onProgress?.(pageNum, totalPages);
   }
 
+  await loadingTask.destroy();
+
   // Deduplicate okulListRows in case a PDF repeated students across sections
   const uniqueOkulMap = new Map<string, OkulListRow>();
   for (const row of okulListRows) {
-    const key = buildStudentKey(row.numara, row.name, row.sinif);
+    const key = examRosterKey(row.numara, row.name, row.sinif);
     if (!uniqueOkulMap.has(key)) {
       uniqueOkulMap.set(key, row);
     }
   }
-  const dedupedOkulRows = Array.from(uniqueOkulMap.values());
+  const coveredListRows = new Set<string>();
 
   const nowIso = new Date().toISOString();
   const examDate = options?.examDate || nowIso.slice(0, 10);
@@ -1470,7 +1464,7 @@ export async function parseExamPdf(
 
   if (sonucPages.length > 0) {
     for (const sp of sonucPages) {
-      const key = buildStudentKey(sp.numara, sp.name, sp.sinif);
+      const key = examRosterKey(sp.numara, sp.name, sp.sinif);
       const listMatch = uniqueOkulMap.get(key);
 
       // Prefer OKUL NET LISTESI name if SONUÇ BELGESİ dropped a glyph (e.g. "ALİ AVCIO LU" -> "ALİ AVCIOĞLU")
@@ -1537,6 +1531,7 @@ export async function parseExamPdf(
         kazanimlar: sp.kazanimlar,
       };
 
+      if (listMatch && isAttendedExamRecord(record)) coveredListRows.add(key);
       records.push({
         studentKey: buildStudentKey(sp.numara, cleanName, sp.sinif),
         numara: sp.numara,
@@ -1545,43 +1540,43 @@ export async function parseExamPdf(
         record,
       });
     }
-  } else if (dedupedOkulRows.length > 0) {
-    for (const row of dedupedOkulRows) {
-      const enrichedSubjects = { ...row.subjects };
-      for (const s of SUBJECT_LIST) {
-        enrichedSubjects[s.key] = {
-          ...enrichedSubjects[s.key],
-          kurumOrt: okulListMeta.schoolSubjectNets[s.key],
-          genelOrt: okulListMeta.generalSubjectNets[s.key],
-        };
-      }
-      const record: StudentExamRecord = {
-        examId,
-        examName: detectedExamName,
-        examOrder,
-        examDate,
-        uploadedAt: nowIso,
-        lgsPuan: row.lgsPuan,
-        genelOrtPuan: okulListMeta.generalAvgLgs,
-        okulOrtPuan: okulListMeta.schoolAvgLgs,
-        dereceler: row.dereceler,
-        katilimlar: okulListMeta.katilimlar,
-        subjects: enrichedSubjects,
-        toplam: {
-          ...row.toplam,
-          kurumOrt: okulListMeta.schoolAvgToplamNet,
-          genelOrt: okulListMeta.generalAvgToplamNet,
-        },
-        kazanimlar: [],
+  }
+  for (const [key, row] of uniqueOkulMap) {
+    if (coveredListRows.has(key)) continue;
+    const enrichedSubjects = { ...row.subjects };
+    for (const s of SUBJECT_LIST) {
+      enrichedSubjects[s.key] = {
+        ...enrichedSubjects[s.key],
+        kurumOrt: okulListMeta.schoolSubjectNets[s.key],
+        genelOrt: okulListMeta.generalSubjectNets[s.key],
       };
-      records.push({
-        studentKey: buildStudentKey(row.numara, row.name, row.sinif),
-        numara: row.numara,
-        name: row.name,
-        sinif: normalizeClassName(row.sinif),
-        record,
-      });
     }
+    const record: StudentExamRecord = {
+      examId,
+      examName: detectedExamName,
+      examOrder,
+      examDate,
+      uploadedAt: nowIso,
+      lgsPuan: row.lgsPuan,
+      genelOrtPuan: okulListMeta.generalAvgLgs,
+      okulOrtPuan: okulListMeta.schoolAvgLgs,
+      dereceler: row.dereceler,
+      katilimlar: okulListMeta.katilimlar,
+      subjects: enrichedSubjects,
+      toplam: {
+        ...row.toplam,
+        kurumOrt: okulListMeta.schoolAvgToplamNet,
+        genelOrt: okulListMeta.generalAvgToplamNet,
+      },
+      kazanimlar: [],
+    };
+    records.push({
+      studentKey: buildStudentKey(row.numara, row.name, row.sinif),
+      numara: row.numara,
+      name: row.name,
+      sinif: normalizeClassName(row.sinif),
+      record,
+    });
   }
 
   if (records.length === 0) {
@@ -1594,17 +1589,8 @@ export async function parseExamPdf(
   // Also skip absent / "Girmedi" rows with 0 score, 0 D, 0 Y, and 0 net so they never dilute averages
   const dedupedRecordsMap = new Map<string, ParsedExamBundle['records'][number]>();
   for (const item of records) {
-    if (
-      item.record.lgsPuan <= 0 &&
-      item.record.toplam.dogru === 0 &&
-      item.record.toplam.yanlis === 0 &&
-      item.record.toplam.net === 0
-    ) {
-      continue;
-    }
-    const nameSig = normalizeTurkish(item.name).replace(/\s+/g, '');
-    const cleanNo = (item.numara || '').replace(/\D/g, '').replace(/^0+/, '');
-    const dedupKey = nameSig.length >= 4 ? `N_${nameSig}` : cleanNo ? `NO_${cleanNo}` : item.studentKey;
+    if (!isAttendedExamRecord(item.record)) continue;
+    const dedupKey = examRosterKey(item.numara, item.name, item.sinif);
     const prev = dedupedRecordsMap.get(dedupKey);
     if (!prev) {
       dedupedRecordsMap.set(dedupKey, item);
@@ -1634,6 +1620,7 @@ export async function parseExamPdf(
   const uniqueRecords = Array.from(dedupedRecordsMap.values());
   records.length = 0;
   records.push(...uniqueRecords);
+  if (!records.length) throw new Error('PDF dosyasında sınava katılan öğrencilerin sonucu bulunamadı.');
 
   // Compute school averages if not explicitly provided in header
   const avgLgs =

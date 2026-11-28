@@ -40,6 +40,11 @@ export function buildStudentKey(numara: string, name: string, sinif: string): st
   return `NAME_${cleanName}_${cleanSinif}`.slice(0, 120);
 }
 
+export function examRosterKey(numara: string, name: string, sinif: string): string {
+  const number = (numara || '').replace(/\D/g, '').replace(/^0+/, '');
+  return JSON.stringify([number, normalizeTurkish(name).replace(/\s/g, ''), normalizeClassName(sinif || '')]);
+}
+
 export function matchSubjectLabel(raw: string): SubjectKey | null {
   const norm = normalizeTurkish(raw);
   if (!norm) return null;

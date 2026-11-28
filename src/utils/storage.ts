@@ -7,7 +7,7 @@ import {
   StudentExamRecord,
   StudentProfile,
 } from '../types/exam';
-import { buildStudentKey, normalizeClassName, normalizeTurkish } from './pdfParser';
+import { buildStudentKey, examRosterKey, normalizeClassName, normalizeTurkish } from './examLabels';
 import { isAttendedExamRecord } from './analytics';
 
 const STORAGE_KEY = 'lgs_deneme_arsivi_v1';
@@ -53,6 +53,47 @@ function cleanStudentNo(numara: string | undefined): string {
   return (numara || '').replace(/\D/g, '').replace(/^0+/, '');
 }
 
+function findStudentMatch(
+  students: Iterable<StudentProfile>,
+  incoming: Pick<StudentProfile, 'numara' | 'name' | 'sinif'>,
+  examIds: ReadonlySet<string>,
+): StudentProfile | undefined {
+  const key = examRosterKey(incoming.numara, incoming.name, incoming.sinif);
+  const name = buildNameSignature(incoming.name);
+  const sortedName = buildSortedTokensSignature(incoming.name);
+  const number = cleanStudentNo(incoming.numara);
+  const classroom = normalizeClassName(incoming.sinif || '');
+  let best: StudentProfile | undefined;
+  let bestScore = 0;
+  let ambiguous = false;
+
+  for (const student of students) {
+    if (examRosterKey(student.numara, student.name, student.sinif) === key) return student;
+    // Once this exam has a row for a profile, only the same roster identity may update it.
+    if (student.exams.some((exam) => examIds.has(exam.examId))) continue;
+    const knownNumber = cleanStudentNo(student.numara);
+    if (number && knownNumber && number !== knownNumber) continue;
+    const sameNumber = Boolean(number && number === knownNumber);
+    const sameClass = classroom === normalizeClassName(student.sinif);
+    if (!sameClass && !sameNumber) continue;
+    const candidateName = buildNameSignature(student.name);
+    let score = 0;
+    if (name === candidateName || sortedName === buildSortedTokensSignature(student.name)) {
+      score = sameClass ? 3 : 2;
+    } else if (sameClass && sameNumber && name.length >= 6 && editDistance(name, candidateName) <= 2) {
+      score = 1;
+    }
+    if (score > bestScore) {
+      best = student;
+      bestScore = score;
+      ambiguous = false;
+    } else if (score > 0 && score === bestScore) {
+      ambiguous = true;
+    }
+  }
+  return ambiguous ? undefined : best;
+}
+
 function scoreNameQuality(name: string): number {
   let score = name.trim().length;
   // Prefer properly accented Turkish characters over stripped ASCII
@@ -83,21 +124,14 @@ function mergeStudentExamRecords(
   validExamIds?: Set<string>
 ): StudentExamRecord[] {
   const byExamId = new Map<string, StudentExamRecord>();
-  const bySignature = new Map<string, string>();
 
   const addRecord = (rec: StudentExamRecord) => {
     // Ignore absent / "Girmedi" placeholder rows (0 score, 0 correct, 0 wrong, 0 net)
     if (!isAttendedExamRecord(rec)) return;
     if (validExamIds && validExamIds.size > 0 && !validExamIds.has(rec.examId)) return;
-    const sig = `${normalizeTurkish(rec.examName)}__${rec.examDate}__${Math.round(rec.lgsPuan * 10)}__${Math.round(rec.toplam.net * 100)}`;
-    const targetId = byExamId.has(rec.examId)
-      ? rec.examId
-      : bySignature.get(sig) ?? rec.examId;
-
-    const prev = byExamId.get(targetId);
+    const prev = byExamId.get(rec.examId);
     if (!prev) {
       byExamId.set(rec.examId, rec);
-      bySignature.set(sig, rec.examId);
     } else {
       const prevRichness =
         (prev.kazanimlar?.length ?? 0) * 10 +
@@ -112,19 +146,8 @@ function mergeStudentExamRecords(
 
       const winner = recRichness >= prevRichness ? rec : prev;
       const loser = recRichness >= prevRichness ? prev : rec;
-      const canonicalExamId =
-        validExamIds && !validExamIds.has(prev.examId) && validExamIds.has(rec.examId)
-          ? rec.examId
-          : prev.examId;
-
-      if (canonicalExamId !== targetId) {
-        byExamId.delete(targetId);
-        bySignature.set(sig, canonicalExamId);
-      }
-
-      byExamId.set(canonicalExamId, {
+      byExamId.set(rec.examId, {
         ...winner,
-        examId: canonicalExamId,
         kazanimlar:
           winner.kazanimlar.length >= loser.kazanimlar.length
             ? winner.kazanimlar
@@ -144,7 +167,7 @@ function mergeStudentExamRecords(
 
 /**
  * Heals and deduplicates an entire ExamArchiveState:
- * - Merges duplicate StudentProfile entries (same name, reversed tokens, matching number, or minor Turkish glyph typos)
+ * - Merges compatible StudentProfile entries while keeping distinct rows in the same exam
  * - Deduplicates each student's exam records
  * - Normalizes canonical Firestore-safe student IDs and recalculates exam participant counts
  */
@@ -164,54 +187,16 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
 
   // 2. Merge duplicate StudentProfiles
   const mergedList: StudentProfile[] = [];
-  const byExactName = new Map<string, number>();
-  const bySortedTokens = new Map<string, number>();
-  const byNo = new Map<string, number>();
 
   for (const rawStudent of state.students) {
     if (!rawStudent || !rawStudent.name) continue;
     const sinif = normalizeClassName(rawStudent.sinif || '8-A');
-    const nameSig = buildNameSignature(rawStudent.name);
-    const sortedTokens = buildSortedTokensSignature(rawStudent.name);
     const no = cleanStudentNo(rawStudent.numara);
+    const examIds = new Set((rawStudent.exams || []).map(({ examId }) => examId));
+    const target = findStudentMatch(mergedList, rawStudent, examIds);
 
-    let matchIdx: number | undefined;
-
-    // 2a. Exact normalized name match (catches "HALİL BALCI" vs "Halil Balcı" vs "HALIL  BALCI" regardless of ID/number drift)
-    if (nameSig.length >= 3 && byExactName.has(nameSig)) {
-      matchIdx = byExactName.get(nameSig);
-    }
-
-    // 2b. Reversed name token match ("BALCI HALİL" vs "HALİL BALCI")
-    if (matchIdx === undefined && sortedTokens.length >= 3 && bySortedTokens.has(sortedTokens)) {
-      matchIdx = bySortedTokens.get(sortedTokens);
-    }
-
-    // 2c. Same non-zero student number with compatible name
-    if (matchIdx === undefined && no && byNo.has(no)) {
-      const candidateIdx = byNo.get(no)!;
-      const candidateSig = buildNameSignature(mergedList[candidateIdx].name);
-      if (
-        editDistance(candidateSig, nameSig) <= 3 ||
-        (candidateSig.length >= 4 && candidateSig.slice(0, 4) === nameSig.slice(0, 4))
-      ) {
-        matchIdx = candidateIdx;
-      }
-    }
-
-    // 2d. Fuzzy 1-2 character typo match (handles PDF font glyph drops like Ğ/Ş/İ)
-    if (matchIdx === undefined && nameSig.length >= 6) {
-      for (let i = 0; i < mergedList.length; i++) {
-        const candidateSig = buildNameSignature(mergedList[i].name);
-        if (editDistance(candidateSig, nameSig) <= 2) {
-          matchIdx = i;
-          break;
-        }
-      }
-    }
-
-    if (matchIdx !== undefined) {
-      const target = mergedList[matchIdx];
+    if (target) {
+      const matchIdx = mergedList.indexOf(target);
       const mergedNo = cleanStudentNo(target.numara) || no || '0';
       const mergedName = pickBetterName(target.name, rawStudent.name);
       const mergedSinif = pickBetterClass(target.sinif, sinif);
@@ -225,15 +210,7 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
         exams: mergedExams,
       };
 
-      const updatedSig = buildNameSignature(mergedName);
-      const updatedTokens = buildSortedTokensSignature(mergedName);
-      if (updatedSig) byExactName.set(updatedSig, matchIdx);
-      if (nameSig) byExactName.set(nameSig, matchIdx);
-      if (updatedTokens) bySortedTokens.set(updatedTokens, matchIdx);
-      if (sortedTokens) bySortedTokens.set(sortedTokens, matchIdx);
-      if (mergedNo && mergedNo !== '0') byNo.set(mergedNo, matchIdx);
     } else {
-      const idx = mergedList.length;
       const canonicalId = buildStudentKey(no || '0', rawStudent.name, sinif);
       const cleanProfile: StudentProfile = {
         id: canonicalId,
@@ -243,9 +220,6 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
         exams: mergeStudentExamRecords([], rawStudent.exams || [], validExamIds),
       };
       mergedList.push(cleanProfile);
-      if (nameSig) byExactName.set(nameSig, idx);
-      if (sortedTokens) bySortedTokens.set(sortedTokens, idx);
-      if (no) byNo.set(no, idx);
     }
   }
 
@@ -383,8 +357,6 @@ export function mergeExamBundle(
   };
 
   const studentMap = new Map<string, StudentProfile>();
-  const exactNameIndex = new Map<string, string>();
-  const sortedTokenNameIndex = new Map<string, string>();
 
   for (const s of baseline.students) {
     studentMap.set(s.id, {
@@ -392,13 +364,12 @@ export function mergeExamBundle(
       sinif: normalizeClassName(s.sinif),
       exams: [...s.exams],
     });
-    exactNameIndex.set(buildNameSignature(s.name), s.id);
-    sortedTokenNameIndex.set(buildSortedTokensSignature(s.name), s.id);
   }
 
   let matchedCount = 0;
   let newStudentsCount = 0;
 
+  const importingExamIds = new Set([examMeta.id]);
   for (const item of bundle.records) {
     const cleanSinif = normalizeClassName(item.sinif);
     const updatedRecord: StudentExamRecord = {
@@ -408,39 +379,7 @@ export function mergeExamBundle(
       examOrder: examMeta.examOrder,
     };
 
-    const incomingSig = buildNameSignature(item.name);
-    const incomingSortedTokens = buildSortedTokensSignature(item.name);
-
-    // 1. Exact normalized name match first (most reliable across publishers even when numbers differ)
-    let targetId: string | undefined = exactNameIndex.get(incomingSig);
-
-    // 2. Reversed "SOYAD AD" vs "AD SOYAD" token match
-    if (!targetId) {
-      targetId = sortedTokenNameIndex.get(incomingSortedTokens);
-    }
-
-    // 3. Match by Student Key (NO_<numara>) if names are compatible
-    if (!targetId && studentMap.has(item.studentKey)) {
-      const existingByNo = studentMap.get(item.studentKey)!;
-      const existingSig = buildNameSignature(existingByNo.name);
-      const dist = editDistance(existingSig, incomingSig);
-      const sameTokens = buildSortedTokensSignature(existingByNo.name) === incomingSortedTokens;
-      if (sameTokens || dist <= 3 || existingSig.slice(0, 4) === incomingSig.slice(0, 4)) {
-        targetId = item.studentKey;
-      }
-    }
-
-    // 4. Fuzzy 1-2 character match (handles dropped Turkish letters like Ğ/Ş/İ in PDF fonts)
-    if (!targetId && incomingSig.length >= 6) {
-      for (const [existingId, existingStudent] of studentMap.entries()) {
-        if (editDistance(buildNameSignature(existingStudent.name), incomingSig) <= 2) {
-          targetId = existingId;
-          break;
-        }
-      }
-    }
-
-    const existing = targetId ? studentMap.get(targetId) : undefined;
+    const existing = findStudentMatch(studentMap.values(), item, importingExamIds);
     if (existing) {
       matchedCount += 1;
       if ((!existing.numara || existing.numara === '0') && item.numara && item.numara !== '0') {
@@ -454,7 +393,10 @@ export function mergeExamBundle(
       newStudentsCount += 1;
       let newId = buildStudentKey(item.numara, item.name, cleanSinif);
       if (studentMap.has(newId)) {
-        newId = `${newId}_${incomingSig.slice(0, 6)}`;
+        const baseId = `${newId.slice(0, 110)}_${buildNameSignature(item.name).slice(0, 8)}`;
+        newId = baseId;
+        let suffix = 2;
+        while (studentMap.has(newId)) newId = `${baseId}_${suffix++}`;
       }
       const newProfile: StudentProfile = {
         id: newId,
@@ -464,8 +406,6 @@ export function mergeExamBundle(
         exams: [updatedRecord],
       };
       studentMap.set(newProfile.id, newProfile);
-      exactNameIndex.set(incomingSig, newProfile.id);
-      sortedTokenNameIndex.set(incomingSortedTokens, newProfile.id);
     }
   }
 

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import * as XLSX from 'xlsx';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { SUBJECT_LIST } from '../src/types/exam';
 import { branchLevel, rankBranchStudents, summarizeBranchItems, summarizeBranchOutcomes } from '../src/utils/branchStatistics';
 import { parseBranchExcel } from '../src/utils/branchAnalysis';
@@ -14,6 +15,7 @@ import {
 import { makeArchiveJson, mergeBranchBackup, readArchiveJson, removeBranchStudent } from '../src/utils/branchArchive';
 import { branchStudentId } from '../src/utils/branchHistory';
 import { parseExamExcel } from '../src/utils/excelHandler';
+import { deduplicateArchiveState, EMPTY_ARCHIVE_STATE, mergeExamBundle } from '../src/utils/storage';
 
 function workbook(rows: unknown[][], bookType: 'xlsx' | 'xls' = 'xlsx') {
   const book = XLSX.utils.book_new();
@@ -49,6 +51,70 @@ test('full LGS imports XLSX, XLS, Turkish CSV and two-row subject headers', asyn
     assert.equal(record.lgsPuan, 415);
   }
 });
+
+test('full exams keep every distinct student across Excel sheets and separate exam IDs', async () => {
+  const book = XLSX.utils.book_new();
+  const sections = ['8-A', '8-B', '8-C'];
+  const rows = sections.map((classroom, group) => Array.from({ length: 40 }, (_, index) => [
+    index + 1, index < 2 ? 'Deniz Kaya' : `Ogrenci ${group} ${index}`, classroom, ...student.slice(3),
+  ]));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headings, ...rows[0]]), sections[0]);
+  sections.slice(1).forEach((classroom, index) => {
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headings, ...rows[index + 1]]), classroom);
+  });
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([headings, ...rows[0]]), 'Okul');
+  const source = XLSX.write(book, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+  const bundle = await parseExamExcel(source, 'okul.xlsx');
+  assert.equal(bundle.examMeta.studentCount, 120);
+  assert.equal(bundle.records.filter(({ name }) => name === 'Deniz Kaya').length, 6);
+  const first = mergeExamBundle(EMPTY_ARCHIVE_STATE, bundle).nextState;
+  const second = mergeExamBundle(first, { ...bundle, examMeta: { ...bundle.examMeta, id: 'second_exam' } }).nextState;
+  assert.equal(second.students.length, 120);
+  assert.equal(new Set(second.students.map(({ id }) => id)).size, 120);
+  assert.deepEqual(second.exams.map(({ studentCount }) => studentCount), [120, 120]);
+  assert.ok(second.students.every(({ exams }) => exams.length === 2));
+  assert.deepEqual(deduplicateArchiveState(second).state.exams.map(({ studentCount }) => studentCount), [120, 120]);
+});
+
+async function fullRosterPdf() {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const classSections = ['8-A', '8-B', '8-C'];
+  for (const classroom of [...classSections, '8-A']) {
+    const page = pdf.addPage([820, 842]);
+    const write = (text: string, x: number, y: number) => page.drawText(text, { x, y, size: 8, font });
+    write(`${classroom} SINIFI NET LISTESI`, 30, 800);
+    write('O NO', 35, 740);
+    write('ADI SOYADI', 78, 740);
+    write('SINIF', 162, 740);
+    const columns = ['TURKCE', 'TARIH', 'DIN', 'INGILIZCE', 'MATEMATIK', 'FEN'];
+    columns.forEach((subject, index) => {
+      write(subject, 231 + index * 80, 740);
+      ['D', 'Y', 'B', 'N'].forEach((value, sub) => write(value, 212 + index * 80 + sub * 14, 724));
+    });
+    write('LGS', 695, 740);
+    for (let index = 0; index < 30; index++) {
+      const y = 700 - index * 20;
+      write(String(index + 1), 35, y);
+      write(index < 2 ? 'Deniz Kaya' : `Ogrenci ${index}`, 78, y);
+      write(classroom, 162, y);
+      columns.forEach((_, col) => ['7', '3', '0', '6,00'].forEach((value, sub) => write(value, 212 + col * 80 + sub * 14, y)));
+      write('415,00', 695, y);
+    }
+  }
+  const report = pdf.addPage([595, 842]);
+  const write = (text: string, x: number, y: number) => report.drawText(text, { x, y, size: 9, font });
+  write('SONUC BELGESI', 25, 806);
+  write('ADI SOYADI', 25, 720);
+  write('NUMARA', 260, 720);
+  write('SINIF', 375, 720);
+  write('Deniz Kaya', 25, 700);
+  write('1', 260, 700);
+  write('8-A', 375, 700);
+  write('LGS', 25, 677);
+  write('415,00', 220, 677);
+  return pdf.save();
+}
 
 test('branch spreadsheets accept a single subject and keep net-only counts unknown', () => {
   const grouped = workbook([
@@ -204,7 +270,7 @@ function textPdf(rows: string[][]) {
   return new TextEncoder().encode(pdf + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`).buffer;
 }
 
-test('text PDF branch tables import from one or two header rows', async () => {
+test('text PDF imports branch tables and keeps the complete full-exam roster alongside report cards', async () => {
   const dir = await mkdtemp(path.resolve('tests/.exam-imports-'));
   try {
     const modulePath = path.join(dir, 'pdf.mjs');
@@ -219,7 +285,11 @@ test('text PDF branch tables import from one or two header rows', async () => {
         }));
       } }],
     });
-    const { parseBranchPdf } = await import(pathToFileURL(modulePath).href) as typeof import('../src/utils/pdfParser');
+    const { parseBranchPdf, parseExamPdf } = await import(pathToFileURL(modulePath).href) as typeof import('../src/utils/pdfParser');
+    const fullExam = await parseExamPdf(await fullRosterPdf(), 'karma.pdf');
+    assert.equal(fullExam.records.length, 90);
+    assert.equal(fullExam.records.filter(({ name }) => name === 'Deniz Kaya').length, 6);
+    assert.equal(mergeExamBundle(EMPTY_ARCHIVE_STATE, fullExam).nextState.exams[0].studentCount, 90);
     const row = ['42', 'Ornek Ogrenci', '8-A', '20', '15', '3', '2', '14,00'];
     const options = { subject: 'matematik', questionCount: 20 } as const;
     for (const headers of [

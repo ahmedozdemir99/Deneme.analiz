@@ -93,7 +93,7 @@ export default function App() {
       for (const b of bundles) {
         const res = mergeExamBundle(current, b);
         current = res.nextState;
-        totalRecords += b.records.length;
+        totalRecords += current.exams.find((exam) => exam.id === b.examMeta.id)?.studentCount ?? 0;
         totalMatched += res.matchedCount;
         totalNew += res.newStudentsCount;
       }

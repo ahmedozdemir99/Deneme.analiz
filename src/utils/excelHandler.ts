@@ -14,6 +14,7 @@ import {
 } from '../types/exam';
 import {
   buildStudentKey,
+  examRosterKey,
   matchSubjectLabel,
   normalizeClassName,
   normalizeTurkish,
@@ -309,37 +310,34 @@ export async function parseExamExcel(
     throw new Error('Excel dosyasında okunabilir bir sayfa bulunamadı.');
   }
 
-  let selectedRows: unknown[][] = [];
-  let mapping: ColMapping | null = null;
-  let detectedSheetTitle = '';
-
-  for (const sheetName of workbook.SheetNames) {
+  const resultSheets = workbook.SheetNames.flatMap((sheetName) => {
     const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
+    if (!sheet) return [];
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
       header: 1,
       defval: '',
       blankrows: false,
     });
-    const m = detectExcelColumns(rows);
-    if (m && (!mapping || m.matchedSubjectCount > mapping.matchedSubjectCount ||
-      (m.matchedSubjectCount === mapping.matchedSubjectCount && mapping.nameIdx === -1 && m.nameIdx !== -1))) {
-      mapping = m;
-      selectedRows = rows;
-      detectedSheetTitle = sheetName;
-    }
-  }
+    const mapping = detectExcelColumns(rows);
+    return mapping ? [{ sheetName, rows, mapping }] : [];
+  });
+  const firstSheet = [...resultSheets].sort((a, b) =>
+    b.mapping.matchedSubjectCount - a.mapping.matchedSubjectCount ||
+    Number(b.mapping.nameIdx !== -1) - Number(a.mapping.nameIdx !== -1)
+  )[0];
 
-  if (!mapping) {
+  if (!firstSheet) {
     throw new Error(
       'Excel dosyasında LGS ders sütunları (Türkçe, İnkılap/Tarih, Din, İngilizce, Matematik, Fen) algılanamadı. Örnek Excel şablonunu indirip sütun başlıklarını kontrol edebilirsiniz.'
     );
   }
 
+  const { sheetName: detectedSheetTitle, rows: selectedRows, mapping: primaryMapping } = firstSheet;
+
   // Try to detect exam name / school name from top title rows above header
   let detectedExamName = options?.customExamName?.trim() || '';
   let detectedSchoolName = '';
-  for (let r = 0; r < Math.min(mapping.dataStartRow - 1, 5); r++) {
+  for (let r = 0; r < Math.min(primaryMapping.dataStartRow - 1, 5); r++) {
     const text = (selectedRows[r] || [])
       .map((cell) => String(cell ?? '').trim())
       .filter(Boolean)
@@ -375,8 +373,19 @@ export async function parseExamExcel(
 
   const records: ParsedExamBundle['records'] = [];
 
-  for (let r = mapping.dataStartRow; r < selectedRows.length; r++) {
-    const row = selectedRows[r] || [];
+  function* studentRows() {
+    for (const sheet of resultSheets) {
+      const { mapping, rows, sheetName } = sheet;
+      if (mapping.matchedSubjectCount !== primaryMapping.matchedSubjectCount ||
+        (sheet !== firstSheet && mapping.nameIdx === -1)) continue;
+      const classroom = /^\d{1,2}[ ./-]?[A-ZÇĞİÖŞÜ]$/i.test(sheetName) ? sheetName : '8-A';
+      for (let index = mapping.dataStartRow; index < rows.length; index++) {
+        yield { row: rows[index], mapping, classroom, primary: sheet === firstSheet };
+      }
+    }
+  }
+
+  for (const { row, mapping, classroom, primary } of studentRows()) {
     const rowJoined = row.map((c) => String(c ?? '').trim()).join(' ').trim();
     if (!rowJoined) continue;
 
@@ -388,6 +397,7 @@ export async function parseExamExcel(
       normJoined.includes('OKUL ORTALAMA') ||
       normJoined.includes('KURUM ORTALAMA')
     ) {
+      if (!primary) continue;
       const isGen = normJoined.includes('GENEL ORTALAMA');
       for (const s of SUBJECT_LIST) {
         const nIdx = mapping.subjectCols[s.key].N;
@@ -438,8 +448,8 @@ export async function parseExamExcel(
 
     const numaraRaw = mapping.noIdx !== -1 ? String(row[mapping.noIdx] ?? '').trim() : '';
     const numara = numaraRaw.replace(/\D/g, '') || '0';
-    const sinifRaw = mapping.sinifIdx !== -1 ? String(row[mapping.sinifIdx] ?? '').trim() : '8-A';
-    const sinif = normalizeClassName(sinifRaw || '8-A');
+    const sinifRaw = mapping.sinifIdx !== -1 ? String(row[mapping.sinifIdx] ?? '').trim() : '';
+    const sinif = normalizeClassName(sinifRaw || classroom);
 
     // Parse all 6 subjects
     const subjects = {} as Record<SubjectKey, SubjectScore>;
@@ -545,12 +555,10 @@ export async function parseExamExcel(
     throw new Error('Excel sayfasında geçerli öğrenci deneme satırı bulunamadı.');
   }
 
-  // Deduplicate repeated student rows within the same Excel sheet
+  // A repeated row may appear in a school-wide sheet and a class sheet.
   const dedupedExcelMap = new Map<string, ParsedExamBundle['records'][number]>();
   for (const item of records) {
-    const nameSig = normalizeTurkish(item.name).replace(/\s+/g, '');
-    const cleanNo = (item.numara || '').replace(/\D/g, '').replace(/^0+/, '');
-    const key = nameSig.length >= 4 ? `N_${nameSig}` : cleanNo ? `NO_${cleanNo}` : item.studentKey;
+    const key = examRosterKey(item.numara, item.name, item.sinif);
     if (!dedupedExcelMap.has(key)) {
       dedupedExcelMap.set(key, item);
     }
