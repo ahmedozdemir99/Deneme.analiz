@@ -15,7 +15,8 @@ import {
 import { makeArchiveJson, mergeBranchBackup, readArchiveJson, removeBranchStudent } from '../src/utils/branchArchive';
 import { branchStudentId } from '../src/utils/branchHistory';
 import { parseExamExcel } from '../src/utils/excelHandler';
-import { deduplicateArchiveState, EMPTY_ARCHIVE_STATE, mergeExamBundle } from '../src/utils/storage';
+import { mergeLocalAndCloudArchives } from '../src/utils/cloudBackup';
+import { deduplicateArchiveState, EMPTY_ARCHIVE_STATE, mergeExamBundle, replacePdfExamInState } from '../src/utils/storage';
 
 function workbook(rows: unknown[][], bookType: 'xlsx' | 'xls' = 'xlsx') {
   const book = XLSX.utils.book_new();
@@ -115,6 +116,30 @@ async function fullRosterPdf() {
   write('415,00', 220, 677);
   return pdf.save();
 }
+
+test('re-reading an archived PDF keeps its identity and repairs only that exam', async () => {
+  const parsed = await parseExamExcel(workbook([headings, student]), 'sonuclar.xlsx', { examDate: '2026-11-15' });
+  const correct = { ...parsed, examMeta: { ...parsed.examMeta, fileName: 'sonuclar.pdf' } };
+  const old = { ...correct, records: correct.records.map((item) => ({
+    ...item, record: { ...item.record, subjects: { ...item.record.subjects,
+      tarih: { ...item.record.subjects.tarih, dogru: 0, yanlis: 0, bos: 10, net: 0 } } },
+  })) };
+  const first = mergeExamBundle(EMPTY_ARCHIVE_STATE, old).nextState;
+  const unrelated = { ...parsed, examMeta: { ...parsed.examMeta, id: 'unrelated', name: 'Başka deneme' } };
+  const previous = mergeExamBundle(first, unrelated).nextState;
+  const repaired = replacePdfExamInState(previous, old.examMeta.id, correct).nextState;
+
+  assert.deepEqual(repaired.exams.map(({ id }) => id), [old.examMeta.id, 'unrelated']);
+  assert.deepEqual(repaired.students[0].exams.map(({ examId, subjects }) => [examId, subjects.tarih.net]),
+    [[old.examMeta.id, 6], ['unrelated', 6]]);
+  assert.throws(() => replacePdfExamInState(previous, old.examMeta.id, parsed), /arşivdeki PDF/);
+  assert.throws(() => replacePdfExamInState(previous, old.examMeta.id, { ...correct, warnings: ['Okunamayan sütun'] }),
+    /Okunamayan sütun/);
+  const restored = mergeLocalAndCloudArchives(repaired, previous, new Set([old.examMeta.id])).merged;
+  assert.deepEqual(restored.students[0].exams.map(({ examId, subjects }) => [examId, subjects.tarih.net]),
+    [[old.examMeta.id, 6], ['unrelated', 6]]);
+  assert.equal(previous.students[0].exams[0].subjects.tarih.net, 0);
+});
 
 test('branch spreadsheets accept a single subject and keep net-only counts unknown', () => {
   const grouped = workbook([

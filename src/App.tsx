@@ -21,6 +21,7 @@ import {
   loadArchiveState,
   mergeExamBundle,
   renameExamInState,
+  replacePdfExamInState,
   saveArchiveState,
 } from './utils/storage';
 import { StudentCardsView } from './components/StudentCardsView';
@@ -45,7 +46,11 @@ export default function App() {
   });
   const [activeTab, setActiveTab] = useState<NavTab>('students');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentExamId, setSelectedStudentExamId] = useState<string>();
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [replacementExamId, setReplacementExamId] = useState<string | null>(null);
+  const [examFocus, setExamFocus] = useState<{ id: string }>();
+  const replacementExam = archive.exams.find((exam) => exam.id === replacementExamId);
   const [scan, setScan] = useState({ loaded: false, open: false });
 
   const [bannerMessage, setBannerMessage] = useState<{
@@ -85,20 +90,39 @@ export default function App() {
 
   const handleBundlesParsed = useCallback(
     (bundles: ParsedExamBundle[]) => {
+      if (replacementExamId && bundles.length !== 1) {
+        throw new Error('Denemeyi yeniden okumak için tek PDF dosyası seçin.');
+      }
       let current = archive;
       let totalRecords = 0;
       let totalMatched = 0;
       let totalNew = 0;
 
       for (const b of bundles) {
-        const res = mergeExamBundle(current, b);
+        const res = replacementExamId
+          ? replacePdfExamInState(current, replacementExamId, b)
+          : mergeExamBundle(current, b);
         current = res.nextState;
-        totalRecords += current.exams.find((exam) => exam.id === b.examMeta.id)?.studentCount ?? 0;
+        totalRecords += current.exams.find((exam) => exam.id === (replacementExamId ?? b.examMeta.id))?.studentCount ?? 0;
         totalMatched += res.matchedCount;
         totalNew += res.newStudentsCount;
       }
 
-      saveNewExams(current);
+      if (replacementExamId) {
+        const saved = saveArchiveState(current);
+        if (!saved.ok) throw new Error(saved.error);
+        setArchive(current);
+        queueNewExams(current, [replacementExamId]);
+      } else {
+        saveNewExams(current);
+      }
+
+      const lastImported = bundles.at(-1);
+      if (lastImported) {
+        setExamFocus({ id: replacementExamId ?? lastImported.examMeta.id });
+        setSelectedStudentId(null);
+        setActiveTab('students');
+      }
       return {
         totalRecords,
         matchedCount: totalMatched,
@@ -106,7 +130,7 @@ export default function App() {
         examCount: bundles.length,
       };
     },
-    [archive, saveNewExams]
+    [archive, queueNewExams, replacementExamId, saveNewExams]
   );
 
   const handleDeleteExam = useCallback(
@@ -170,8 +194,9 @@ export default function App() {
     []
   );
 
-  const handleSelectStudent = (studentId: string) => {
+  const handleSelectStudent = (studentId: string, examId?: string) => {
     setSelectedStudentId(studentId);
+    setSelectedStudentExamId(examId);
     setActiveTab('students');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -293,6 +318,7 @@ export default function App() {
         ) : activeTab === 'students' && selectedStudent ? (
           <StudentDetailView
             student={selectedStudent}
+            selectedExamId={selectedStudentExamId}
             nextExamOrder={nextExamOrder}
             onBack={() => setSelectedStudentId(null)}
             onAddManualExam={handleAddManualExam}
@@ -311,6 +337,7 @@ export default function App() {
             <StudentCardsView
               exams={archive.exams}
               students={archive.students}
+              examFocus={examFocus}
               onSelectStudent={handleSelectStudent}
               onOpenUpload={() => setIsUploadOpen(true)}
             />
@@ -332,6 +359,10 @@ export default function App() {
             state={archive}
             cloud={cloud}
             onOpenUpload={() => setIsUploadOpen(true)}
+            onReplacePdf={(examId) => {
+              setReplacementExamId(examId);
+              setIsUploadOpen(true);
+            }}
             onDeleteExam={handleDeleteExam}
             onRenameExam={handleRenameExam}
             onImportJson={handleImportJson}
@@ -349,7 +380,11 @@ export default function App() {
 
       <UploadModal
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        onClose={() => {
+          setIsUploadOpen(false);
+          setReplacementExamId(null);
+        }}
+        replacementExam={replacementExam}
         onBundlesParsed={handleBundlesParsed}
         nextExamOrder={nextExamOrder}
       />

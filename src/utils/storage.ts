@@ -350,7 +350,8 @@ export function clearArchiveState(): void {
 
 export function mergeExamBundle(
   prev: ExamArchiveState,
-  bundle: ParsedExamBundle
+  bundle: ParsedExamBundle,
+  retainedOrder?: number,
 ): { nextState: ExamArchiveState; matchedCount: number; newStudentsCount: number } {
   // Always start from a clean deduplicated baseline
   const baseline = deduplicateArchiveState(prev).state;
@@ -360,7 +361,7 @@ export function mergeExamBundle(
 
   const examMeta = {
     ...bundle.examMeta,
-    examOrder: nextOrder,
+    examOrder: retainedOrder ?? nextOrder,
   };
 
   const studentMap = new Map<string, StudentProfile>();
@@ -423,6 +424,25 @@ export function mergeExamBundle(
   const { state: nextState } = deduplicateArchiveState(rawNextState);
 
   return { nextState, matchedCount, newStudentsCount };
+}
+
+export function replacePdfExamInState(prev: ExamArchiveState, examId: string, bundle: ParsedExamBundle) {
+  const existing = prev.exams.find((exam) => exam.id === examId);
+  if (!existing || !/\.pdf$/i.test(existing.fileName) || existing.isSample) {
+    throw new Error('Yeniden okunacak PDF denemesi arşivde bulunamadı.');
+  }
+  const sourceName = (name: string) => name.normalize('NFC').toLocaleLowerCase('tr');
+  if (sourceName(existing.fileName) !== sourceName(bundle.examMeta.fileName)) {
+    throw new Error(`Bu deneme için arşivdeki PDF dosyasını seçin: ${existing.fileName}`);
+  }
+  if (!bundle.records.length || bundle.warnings?.length) {
+    throw new Error(bundle.warnings?.join(' ') || 'PDF’de geçerli sonuç bulunamadı.');
+  }
+
+  return mergeExamBundle(deleteExamFromState(prev, examId), {
+    ...bundle,
+    examMeta: { ...bundle.examMeta, id: examId, name: existing.name },
+  }, existing.examOrder);
 }
 
 export function deleteExamFromState(prev: ExamArchiveState, examId: string): ExamArchiveState {

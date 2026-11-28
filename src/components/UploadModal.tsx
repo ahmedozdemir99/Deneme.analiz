@@ -9,12 +9,13 @@ import {
   Loader2,
   Download,
 } from 'lucide-react';
-import { ParsedExamBundle } from '../types/exam';
+import { ExamMeta, ParsedExamBundle } from '../types/exam';
 import { parseExamPdf } from '../utils/pdfParser';
 import { downloadExcelTemplate, parseExamExcel } from '../utils/excelHandler';
 
 interface UploadModalProps {
   isOpen: boolean;
+  replacementExam?: ExamMeta;
   onClose: () => void;
   onBundlesParsed: (bundles: ParsedExamBundle[]) => {
     totalRecords: number;
@@ -52,6 +53,7 @@ function isPdfFile(file: File): boolean {
 
 export const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
+  replacementExam,
   onClose,
   onBundlesParsed,
   nextExamOrder,
@@ -71,13 +73,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   const handleFilesAdded = (files: FileList | null) => {
     if (!files) return;
-    const supported = Array.from(files).filter((f) => isPdfFile(f) || isExcelFile(f));
+    const supported = Array.from(files).filter((f) => isPdfFile(f) || (!replacementExam && isExcelFile(f)));
+    if (replacementExam && supported.length !== 1) {
+      setErrorMsg('Yeniden okumak için tek PDF dosyası seçin.');
+      return;
+    }
     if (supported.length === 0) {
       setErrorMsg('Lütfen PDF (.pdf) veya Excel (.xlsx, .xls, .csv) formatında deneme sonuç dosyası seçin.');
       return;
     }
     setErrorMsg(null);
     setResultSummary(null);
+    if (replacementExam) {
+      setSelectedFiles(supported);
+      return;
+    }
     setSelectedFiles((prev) => {
       const existingNames = new Set(prev.map((p) => `${p.name}_${p.size}`));
       const uniqueNew = supported.filter((f) => !existingNames.has(`${f.name}_${f.size}`));
@@ -157,6 +167,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setErrorMsg(null);
     setResultSummary(null);
     setSelectedFiles([]);
+    setExamDate('');
     onClose();
   };
 
@@ -172,10 +183,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h2 id="upload-modal-title" className="text-lg font-bold text-slate-900">
-              Toplu Deneme Sonuç Dosyası Yükle (PDF / Excel)
+              {replacementExam ? 'Deneme PDF’sini Yeniden Oku' : 'Toplu Deneme Sonuç Dosyası Yükle (PDF / Excel)'}
             </h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              PDF veya Excel (.xlsx, .xls, .csv) dosyalarını yükleyin; öğrenciler otomatik eşleştirilir.
+              {replacementExam
+                ? `${replacementExam.name} denemesinin sonuçları seçtiğiniz PDF’den güncellenecek. Diğer denemeler arşivde kalır.`
+                : 'PDF veya Excel dosyalarını yükleyin. Öğrenciler otomatik eşleştirilir.'}
             </p>
           </div>
           <button
@@ -213,8 +226,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/pdf,.pdf,.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
-              multiple
+              accept={replacementExam ? "application/pdf,.pdf" : "application/pdf,.pdf,.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"}
+              multiple={!replacementExam}
               className="hidden"
               onChange={(e) => handleFilesAdded(e.target.files)}
             />
@@ -222,17 +235,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <FileUp className="h-5 w-5" />
             </div>
             <p className="text-sm font-semibold text-slate-900">
-              PDF veya Excel dosyasını sürükleyip bırakın veya seçin
+              {replacementExam ? replacementExam.fileName : 'PDF veya Excel dosyasını sürükleyip bırakın veya seçin'}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Desteklenen formatlar: <strong>PDF</strong> (Toplu Sonuç Belgesi / Okul Net Listesi) ve{' '}
-              <strong>Excel (.xlsx, .xls, .csv)</strong> (tek veya çift satır başlıklı D/Y/B/Net tabloları).
-              Tek derslik dosyaları <strong>Branş Analizi</strong> sekmesinden yükleyin.
+              {replacementExam
+                ? 'Bu denemede daha önce kullandığınız PDF dosyasını seçin.'
+                : <> <strong>PDF</strong> sonuç listesi veya <strong>Excel (.xlsx, .xls, .csv)</strong> seçin. Tek derslik dosyaları <strong>Branş Analizi</strong> sekmesinden yükleyin.</>}
             </p>
           </div>
 
           {/* Excel Template Helper Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs">
+          {!replacementExam && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs">
             <span className="flex items-center gap-2 text-slate-600">
               <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-700" />
               Kendi Excel dosyanızı hazırlamak için hazır şablonu kullanabilirsiniz.
@@ -245,7 +258,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <Download className="h-3.5 w-3.5" />
               Örnek Şablon (.xlsx)
             </button>
-          </div>
+          </div>}
 
           {/* Selected files list */}
           {selectedFiles.length > 0 && (
@@ -310,9 +323,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               <input
                 id="exam-name-input"
                 type="text"
-                value={customExamName}
+                value={replacementExam?.name ?? customExamName}
                 onChange={(e) => setCustomExamName(e.target.value)}
-                disabled={isParsing || selectedFiles.length > 1}
+                disabled={isParsing || Boolean(replacementExam) || selectedFiles.length > 1}
                 placeholder="Boş bırakılırsa dosyadan otomatik alınır"
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none disabled:bg-slate-50"
               />
@@ -368,7 +381,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3.5 text-sm text-emerald-900">
               <div className="flex items-center gap-2 font-semibold">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                {resultSummary.examCount} deneme başarıyla arşive eklendi
+                {replacementExam ? 'Denemenin sonuçları güncellendi' : `${resultSummary.examCount} deneme başarıyla arşive eklendi`}
               </div>
               <p className="mt-1 text-xs text-emerald-800 tabular-nums">
                 Toplam {resultSummary.totalRecords} öğrenci kaydı işlendi ·{' '}
@@ -406,7 +419,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               disabled={selectedFiles.length === 0 || isParsing}
               className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {isParsing ? 'Okunuyor...' : 'Analiz Et ve Arşive Ekle'}
+              {isParsing ? 'Okunuyor...' : replacementExam ? 'Oku ve Sonuçları Güncelle' : 'Analiz Et ve Arşive Ekle'}
             </button>
           </div>
         </div>

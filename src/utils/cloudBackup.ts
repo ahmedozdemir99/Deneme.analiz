@@ -512,7 +512,8 @@ export async function appendExamsToCloud(
  */
 export function mergeLocalAndCloudArchives(
   local: ExamArchiveState,
-  cloud: ExamArchiveState
+  cloud: ExamArchiveState,
+  pendingExamIds: ReadonlySet<string> = new Set(),
 ): { merged: ExamArchiveState; localHadUniqueData: boolean } {
   if (cloud.exams.length === 0 && cloud.students.length === 0) {
     const { state: cleanedLocal } = deduplicateArchiveState(local);
@@ -540,11 +541,18 @@ export function mergeLocalAndCloudArchives(
 
   let localHadUniqueData = false;
   const uniqueLocalExamIds = new Set<string>();
+  const replacedExamIds = new Set<string>();
   let maxOrder = cloud.exams.reduce((m, e) => Math.max(m, e.examOrder), 0);
 
   for (const ex of local.exams) {
     const sig = `${ex.name.toLowerCase().trim()}__${ex.examDate}`;
-    if (!examById.has(ex.id) && !examSignatureSet.has(sig)) {
+    const remote = examById.get(ex.id);
+    if (remote && pendingExamIds.has(ex.id)) {
+      examById.set(ex.id, { ...ex, examOrder: remote.examOrder });
+      uniqueLocalExamIds.add(ex.id);
+      replacedExamIds.add(ex.id);
+      localHadUniqueData = true;
+    } else if (!remote && (!examSignatureSet.has(sig) || pendingExamIds.has(ex.id))) {
       maxOrder += 1;
       examById.set(ex.id, { ...ex, examOrder: maxOrder });
       examSignatureSet.add(sig);
@@ -559,7 +567,7 @@ export function mergeLocalAndCloudArchives(
 
   const studentById = new Map<string, StudentProfile>();
   for (const st of cloud.students) {
-    studentById.set(st.id, { ...st, exams: [...st.exams] });
+    studentById.set(st.id, { ...st, exams: st.exams.filter((record) => !replacedExamIds.has(record.examId)) });
   }
 
   for (const st of local.students) {

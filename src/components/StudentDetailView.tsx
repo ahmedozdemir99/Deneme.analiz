@@ -51,6 +51,7 @@ import {
   formatTrNumber,
   getSortedExams,
   getStudentProgressSummary,
+  getStudentSummaryForExam,
 } from '../utils/analytics';
 import { ManualExamModal } from './ManualExamModal';
 import { ChartKind, ChartTypeSelector, VIVID_PALETTE } from './ChartTypeSelector';
@@ -58,6 +59,7 @@ import { exportStudentToExcel } from '../utils/excelHandler';
 
 interface StudentDetailViewProps {
   student: StudentProfile;
+  selectedExamId?: string;
   nextExamOrder: number;
   onBack: () => void;
   onAddManualExam: (studentId: string, record: StudentExamRecord) => void;
@@ -66,13 +68,15 @@ interface StudentDetailViewProps {
 
 export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
   student,
+  selectedExamId,
   nextExamOrder,
   onBack,
   onAddManualExam,
   onOpenUpload,
 }) => {
   const sortedExams = useMemo(() => getSortedExams(student), [student]);
-  const summary = useMemo(() => getStudentProgressSummary(student), [student]);
+  const summary = useMemo(() => getStudentSummaryForExam(student, selectedExamId) ?? getStudentProgressSummary(student),
+    [student, selectedExamId]);
   const diagnostics = useMemo(() => buildStudentSubjectDiagnostics(student), [student]);
   const kazanimlar = useMemo(() => aggregateStudentKazanimlar(student), [student]);
 
@@ -85,7 +89,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
 
   // Pair selection for Önceki ↔ Sonraki exam comparison
   const [baseExamId, setBaseExamId] = useState<string>('AUTO_PREV');
-  const [targetExamId, setTargetExamId] = useState<string>('AUTO_LATEST');
+  const [targetExamId, setTargetExamId] = useState<string>(selectedExamId ?? 'AUTO_LATEST');
 
   const [kazanimSubjectFilter, setKazanimSubjectFilter] = useState<SubjectKey | 'ALL'>('ALL');
   const [kazanimStatusFilter, setKazanimStatusFilter] = useState<
@@ -276,7 +280,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
             </h1>
             <p className="mt-1 text-sm font-medium text-slate-500 tabular-nums">
               Şube: {student.sinif} · Okul No: {student.numara} · Toplam {examCount} Deneme Kaydı ·
-              Son Sınav: {latest.examName}
+              {selectedExamId ? 'Seçili Sınav' : 'Son Sınav'} · {latest.examName}
             </p>
             {(latest.dereceler.sinif || latest.dereceler.okul || latest.dereceler.genel) && (
               <p className="mt-2 font-mono text-xs text-slate-600 tabular-nums">
@@ -306,7 +310,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
           <div className="grid grid-cols-2 gap-6 border-t border-slate-100 pt-4 sm:grid-cols-4 lg:border-t-0 lg:pt-0">
             <div>
               <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Son LGS Puanı
+                {selectedExamId ? 'Seçili LGS Puanı' : 'Son LGS Puanı'}
               </span>
               <span className="mt-1 block font-mono text-2xl font-bold text-slate-900 tabular-nums">
                 {formatTrNumber(latest.lgsPuan, 2)}
@@ -439,7 +443,7 @@ export const StudentDetailView: React.FC<StudentDetailViewProps> = ({
                   onChange={(e) => setTargetExamId(e.target.value)}
                   className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:border-blue-600 focus:outline-none"
                 >
-                  <option value="AUTO_LATEST">Son Deneme ({latest.examName})</option>
+                  <option value="AUTO_LATEST">Son Deneme ({sortedExams.at(-1)?.examName})</option>
                   {sortedExams.map((ex) => (
                     <option key={ex.examId} value={ex.examId}>
                       {ex.examName}

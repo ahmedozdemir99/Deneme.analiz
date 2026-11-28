@@ -15,6 +15,7 @@ import {
   CloudDownload,
   LogOut,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { ExamArchiveState } from '../types/exam';
 import { makeArchiveJson, readArchiveJson } from '../utils/branchArchive';
@@ -28,6 +29,7 @@ interface ExamArchiveViewProps {
   state: ExamArchiveState;
   cloud: UseCloudBackupResult;
   onOpenUpload: () => void;
+  onReplacePdf: (examId: string) => void;
   onDeleteExam: (examId: string) => void;
   onRenameExam: (examId: string, newName: string) => void;
   onImportJson: (state: ExamArchiveState, branchExams?: BranchExam[]) => void;
@@ -37,6 +39,7 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
   state,
   cloud,
   onOpenUpload,
+  onReplacePdf,
   onDeleteExam,
   onRenameExam,
   onImportJson,
@@ -388,6 +391,17 @@ export const ExamArchiveView: React.FC<ExamArchiveViewProps> = ({
                         </div>
                       ) : (
                         <div className="inline-flex items-center gap-1">
+                          {/\.pdf$/i.test(ex.fileName) && !ex.isSample && (
+                            <button
+                              type="button"
+                              onClick={() => onReplacePdf(ex.id)}
+                              className="inline-flex min-h-9 items-center gap-1 rounded-md border border-blue-200 px-2 text-xs font-semibold text-blue-800 hover:bg-blue-50"
+                              aria-label={`${ex.name} denemesinin PDF’sini yeniden oku`}
+                            >
+                              <RefreshCw className="size-3.5" aria-hidden="true" />
+                              PDF’yi Yeniden Oku
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => {

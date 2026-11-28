@@ -273,7 +273,7 @@ export function useCloudBackup(
         const localToMerge = restore
           ? { ...local, exams: local.exams.filter((exam) => pending.has(exam.id)) }
           : local;
-        const { merged } = mergeLocalAndCloudArchives(localToMerge, cloud.archive);
+        const { merged } = mergeLocalAndCloudArchives(localToMerge, cloud.archive, pending);
         archiveRef.current = merged;
         onReplaceArchive(merged);
         if (restore) {

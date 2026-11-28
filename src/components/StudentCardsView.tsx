@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Search,
   ArrowUpRight,
@@ -22,7 +22,8 @@ import {
 interface StudentCardsViewProps {
   exams: ExamMeta[];
   students: StudentProfile[];
-  onSelectStudent: (studentId: string) => void;
+  examFocus?: { id: string };
+  onSelectStudent: (studentId: string, examId?: string) => void;
   onOpenUpload: () => void;
 }
 
@@ -31,6 +32,7 @@ type SortKey = 'lgs_desc' | 'net_desc' | 'delta_desc' | 'name_asc' | 'rank_asc';
 export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
   exams,
   students,
+  examFocus,
   onSelectStudent,
   onOpenUpload,
 }) => {
@@ -39,28 +41,18 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
     [exams]
   );
 
-  const [selectedExamId, setSelectedExamId] = useState('ALL');
-  const prevExamCountRef = useRef<number>(sortedExams.length);
+  const latestId = sortedExams.at(-1)?.id;
+  const [selectedExamId, setSelectedExamId] = useState(() => examFocus?.id ?? latestId ?? '');
 
-  // Keep the archive view selected while new exams are added.
   useEffect(() => {
-    if (sortedExams.length === 0) {
-      setSelectedExamId('ALL');
-      prevExamCountRef.current = 0;
-      return;
-    }
-    const latestId = sortedExams[sortedExams.length - 1].id;
-    const grew = sortedExams.length > prevExamCountRef.current;
-    prevExamCountRef.current = sortedExams.length;
+    if (examFocus) setSelectedExamId(examFocus.id);
+  }, [examFocus]);
 
-    if (grew && selectedExamId !== 'ALL') {
-      setSelectedExamId(latestId);
-      return;
+  useEffect(() => {
+    if (selectedExamId !== 'ALL' && !sortedExams.some((exam) => exam.id === selectedExamId)) {
+      setSelectedExamId(latestId ?? '');
     }
-    if (selectedExamId !== 'ALL' && !sortedExams.some((e) => e.id === selectedExamId)) {
-      setSelectedExamId(latestId);
-    }
-  }, [sortedExams, selectedExamId]);
+  }, [latestId, sortedExams, selectedExamId]);
 
   const showAverages = selectedExamId === 'ALL';
   const [searchQuery, setSearchQuery] = useState('');
@@ -199,6 +191,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
             <div className="font-mono text-xs text-slate-500 tabular-nums">
               {activeExamMeta ? (
                 <>
+                  <strong className="text-slate-700">{activeExamMeta.name}</strong> ·{' '}
                   {activeExamMeta.examDate ? `${activeExamMeta.examDate} · ` : ''}
                   {examStats.count} öğrenci · Ort. LGS{' '}
                   <strong className="font-semibold text-slate-900">
@@ -399,7 +392,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
               <button
                 key={student.id}
                 type="button"
-                onClick={() => onSelectStudent(student.id)}
+                onClick={() => onSelectStudent(student.id, activeExamMeta?.id)}
                 className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 text-left transition-all hover:border-blue-400 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600/30"
               >
                 <div>
@@ -573,7 +566,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 return (
                   <tr
                     key={student.id}
-                    onClick={() => onSelectStudent(student.id)}
+                    onClick={() => onSelectStudent(student.id, activeExamMeta?.id)}
                     className="cursor-pointer transition-colors hover:bg-blue-50/40"
                   >
                     <td className="px-4 py-2.5">
@@ -596,6 +589,9 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                           }`}
                         >
                           {formatTrNumber(sc.net, 2)}
+                          {!showAverages && <div className="whitespace-nowrap text-[10px] text-slate-500">
+                            {sc.dogru}D · {sc.yanlis}Y · {sc.bos}B
+                          </div>}
                         </td>
                       );
                     })}
