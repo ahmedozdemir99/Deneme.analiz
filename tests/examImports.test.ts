@@ -141,6 +141,46 @@ test('re-reading an archived PDF keeps its identity and repairs only that exam',
   assert.equal(previous.students[0].exams[0].subjects.tarih.net, 0);
 });
 
+test('numbered profiles recover uniquely abbreviated names without mixing classmates or exam rows', async () => {
+  const parsed = await parseExamExcel(workbook([headings, student]), 'sonuclar.xlsx');
+  const exams = ['earlier', 'middle', 'recent'].map((id, index) => ({
+    ...parsed.examMeta, id, examOrder: index + 1,
+  }));
+  const record = (index: number, historyNet: number) => {
+    const source = parsed.records[0].record;
+    return {
+      ...source, examId: exams[index].id, examOrder: exams[index].examOrder,
+      subjects: { ...source.subjects, tarih: { ...source.subjects.tarih, net: historyNet } },
+    };
+  };
+  const numbered = { id: 'NO_810', numara: '810', name: 'YUSUFTUNA ÖRNEK', sinif: '8-B', exams: [record(0, 5), record(1, 9)] };
+  const abbreviated = { id: 'short', numara: '0', name: 'YUSUF ÖRNEK', sinif: '8-B', exams: [record(2, 10)] };
+  for (const students of [[numbered, abbreviated], [abbreviated, numbered]]) {
+    const corrected = deduplicateArchiveState({ exams, students }).state;
+    assert.equal(corrected.students.length, 1);
+    assert.equal(corrected.students[0].id, 'NO_810');
+    assert.equal(corrected.students[0].name, 'YUSUF TUNA ÖRNEK');
+    assert.deepEqual(corrected.students[0].exams.map(({ subjects }) => subjects.tarih.net), [5, 9, 10]);
+    assert.deepEqual(corrected.exams.map(({ studentCount }) => studentCount), [1, 1, 1]);
+    assert.deepEqual(corrected.exams.map(({ schoolSubjectNets }) => schoolSubjectNets?.tarih), [6, 6, 6]);
+    assert.deepEqual(deduplicateArchiveState(corrected).state, corrected);
+  }
+  const changed = (changes: Partial<typeof abbreviated>) =>
+    deduplicateArchiveState({ exams, students: [numbered, { ...abbreviated, ...changes }] }).state.students;
+  assert.equal(changed({ sinif: '8-A' }).length, 2);
+  assert.equal(changed({ numara: '811' }).length, 2);
+  assert.equal(changed({ exams: [record(1, 10)] }).length, 2);
+  const candidate = { ...numbered, name: 'YUSUF ALP ÖRNEK', numara: '812', exams: [record(0, 4)] };
+  assert.equal(deduplicateArchiveState({ exams, students: [abbreviated, numbered, candidate] }).state.students.length, 3);
+  assert.equal(deduplicateArchiveState({ exams, students: [abbreviated, candidate] }).state.students[0].name, 'YUSUF ALP ÖRNEK');
+  const newBundle = {
+    ...parsed, examMeta: exams[2],
+    records: [{ ...parsed.records[0], ...abbreviated, record: record(2, 10) }],
+  };
+  const imported = mergeExamBundle({ exams: exams.slice(0, 2), students: [numbered] }, newBundle).nextState;
+  assert.deepEqual(imported.students.map(({ id, exams: rows }) => [id, rows.length]), [['NO_810', 3]]);
+});
+
 test('branch spreadsheets accept a single subject and keep net-only counts unknown', () => {
   const grouped = workbook([
     ['Öğrenci No', 'Adı Soyadı', 'Sınıf', 'Matematik'],

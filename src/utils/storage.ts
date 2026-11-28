@@ -173,6 +173,53 @@ function mergeStudentExamRecords(
   });
 }
 
+function expandAbbreviatedName(shortName: string, fullName: string): string | undefined {
+  const short = normalizeTurkish(shortName).split(' ');
+  const full = normalizeTurkish(fullName).split(' ');
+  if (short.length !== 2 || short.some((part) => part.length < 3) || short[1] !== full.at(-1)) {
+    return undefined;
+  }
+  if (full.length > 2 && full[0] === short[0]) return fullName;
+  // Some result exports join the first and middle names into a single word.
+  if (full.length !== 2 || !full[0].startsWith(short[0]) || full[0].length < short[0].length + 3) {
+    return undefined;
+  }
+  const [givenNames, ...surname] = fullName.normalize('NFC').trim().split(/\s+/);
+  if (!/^\p{L}+$/u.test(givenNames) || normalizeTurkish(givenNames) !== full[0]) return undefined;
+  return [givenNames.slice(0, short[0].length), givenNames.slice(short[0].length), ...surname].join(' ');
+}
+
+function mergeAbbreviatedProfiles(profiles: StudentProfile[]): StudentProfile[] {
+  const numbered = profiles.filter(({ numara }) => cleanStudentNo(numara));
+  const proposals = new Map<StudentProfile, Array<{ alias: StudentProfile; fullName: string }>>();
+  for (const alias of profiles) {
+    if (cleanStudentNo(alias.numara) || !alias.exams.length || !/^\d{1,2}-[A-ZÇĞİÖŞÜ]$/.test(alias.sinif)) continue;
+    const candidates = numbered.flatMap((student) => {
+      if (alias.sinif !== student.sinif || !student.exams.length) return [];
+      const sameName = buildNameSignature(alias.name) === buildNameSignature(student.name);
+      const fullName = expandAbbreviatedName(alias.name, student.name);
+      return sameName || fullName ? [{ student, fullName }] : [];
+    });
+    const match = candidates[0];
+    if (candidates.length !== 1 || !match?.fullName ||
+      alias.exams.some((exam) => match.student.exams.some((record) => record.examId === exam.examId))) continue;
+    const incoming = { alias, fullName: match.fullName };
+    const current = proposals.get(match.student);
+    if (current) current.push(incoming);
+    else proposals.set(match.student, [incoming]);
+  }
+
+  const mergedAliases = new Set<StudentProfile>();
+  for (const [student, aliases] of proposals) {
+    if (aliases.length !== 1) continue;
+    const [{ alias, fullName }] = aliases;
+    student.name = fullName;
+    student.exams = mergeStudentExamRecords(student.exams, alias.exams);
+    mergedAliases.add(alias);
+  }
+  return profiles.filter((student) => !mergedAliases.has(student));
+}
+
 /**
  * Heals and deduplicates an entire ExamArchiveState:
  * - Merges compatible StudentProfile entries while keeping distinct rows in the same exam
@@ -232,7 +279,7 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
 
   // Ensure every student has a unique Firestore-safe ID
   const usedIds = new Set<string>();
-  const finalStudents = mergedList
+  const finalStudents = mergeAbbreviatedProfiles(mergedList)
     .filter((s) => s.exams.length > 0)
     .map((s) => {
       let id = buildStudentKey(s.numara, s.name, s.sinif);
@@ -269,6 +316,7 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
       if (recs.length === 0) {
         return { ...ex, studentCount: 0 };
       }
+      const rosterCountChanged = removedDuplicates > 0 && recs.length !== ex.studentCount;
       const round2 = (n: number) => Math.round(n * 100) / 100;
       const avgLgs = round2(recs.reduce((acc, r) => acc + r.lgsPuan, 0) / recs.length);
       const avgNet = round2(recs.reduce((acc, r) => acc + r.toplam.net, 0) / recs.length);
@@ -281,11 +329,11 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
       return {
         ...ex,
         studentCount: recs.length,
-        schoolAvgLgs: removedDuplicates > 0 || ex.schoolAvgLgs === undefined ? avgLgs : ex.schoolAvgLgs,
+        schoolAvgLgs: rosterCountChanged || ex.schoolAvgLgs === undefined ? avgLgs : ex.schoolAvgLgs,
         schoolAvgToplamNet:
-          removedDuplicates > 0 || ex.schoolAvgToplamNet === undefined ? avgNet : ex.schoolAvgToplamNet,
+          rosterCountChanged || ex.schoolAvgToplamNet === undefined ? avgNet : ex.schoolAvgToplamNet,
         schoolSubjectNets:
-          removedDuplicates > 0 || !ex.schoolSubjectNets ? subjectNets : ex.schoolSubjectNets,
+          rosterCountChanged || !ex.schoolSubjectNets ? subjectNets : ex.schoolSubjectNets,
       };
     })
     .sort((a, b) => a.examOrder - b.examOrder);
