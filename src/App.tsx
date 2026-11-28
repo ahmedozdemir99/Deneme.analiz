@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FileUp,
+  ScanLine,
   GraduationCap,
   Users,
   BarChart3,
@@ -33,6 +34,8 @@ import { CloudBackupControl } from './components/CloudBackupControl';
 import { LeaderboardView } from './components/LeaderboardView';
 import { useCloudBackup } from './hooks/useCloudBackup';
 
+const ExamScanDialog = React.lazy(() => import('./components/ExamScanDialog').then(module => ({ default: module.ExamScanDialog })));
+
 type NavTab = 'students' | 'leaderboard' | 'overview' | 'archive' | 'weaknesses';
 
 const BUNDLED_SAMPLE_PDF_URL =
@@ -46,6 +49,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('students');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [scan, setScan] = useState({ loaded: false, open: false });
 
   const [isLoadingSample, setIsLoadingSample] = useState(false);
   const [sampleProgress, setSampleProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -278,6 +282,13 @@ export default function App() {
               studentCount={archive.students.length}
             />
             <PWAInstallButton />
+            <button type="button"
+              onClick={() => setScan({ loaded: true, open: true })}
+              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 px-2 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 sm:px-3">
+              <ScanLine className="size-4" />
+              <span className="hidden sm:inline">Fotoğraftan PDF</span>
+              <span className="sm:hidden">Tara</span>
+            </button>
             <button
               type="button"
               onClick={() => setIsUploadOpen(true)}
@@ -437,6 +448,9 @@ export default function App() {
         onReloadSamplePdf={loadBundledSamplePdf}
         isLoadingSample={isLoadingSample}
       />
+      {scan.loaded && <React.Suspense fallback={null}>
+        <ExamScanDialog open={scan.open} onClose={() => setScan({ loaded: true, open: false })} />
+      </React.Suspense>}
       <OfflineIndicator />
     </div>
   );
