@@ -220,8 +220,8 @@ interface DynamicTableLayout {
   columns: DynamicColumnDef[];
   siraRange?: [number, number];
   noRange?: [number, number];
-  nameRange: [number, number];
-  sinifRange?: [number, number];
+  classX?: number;
+  rankColumns: Array<{ key: keyof ExamRanks; x: number }>;
   lgsRange?: [number, number];
   rankStartX?: number;
   pageWidth: number;
@@ -235,6 +235,14 @@ interface OkulListRow {
   toplam: SubjectScore;
   lgsPuan: number;
   dereceler: ExamRanks;
+  unreadSubjects: SubjectKey[];
+  inconsistentTotal: boolean;
+}
+
+function pdfResultKey(row: Pick<OkulListRow, 'numara' | 'name' | 'sinif' | 'dereceler'>) {
+  const identity = examRosterKey(row.numara, row.name, row.sinif);
+  // A ranked list can contain distinct results for the same name and class without student numbers.
+  return !/[1-9]/.test(row.numara) && row.dereceler.okul ? `${identity}:${row.dereceler.okul}` : identity;
 }
 
 interface OkulListMeta {
@@ -248,6 +256,28 @@ interface OkulListMeta {
   schoolAvgToplamNet?: number;
   generalSubjectNets: Partial<Record<SubjectKey, number>>;
   schoolSubjectNets: Partial<Record<SubjectKey, number>>;
+}
+
+const scoreHeader = /^(D|Y|B|N|NET|DOGRU|YANLIS|BOS)$/;
+
+function splitScoreHeaders(token: TextToken): TextToken[] {
+  const parts = normalizeTurkish(token.str).split(' ');
+  if (parts.length < 2 || !parts.every((part) => scoreHeader.test(part))) return [token];
+  return parts.map((str, index) => ({
+    ...token, str, x: token.x + index * token.width / parts.length, width: token.width / parts.length,
+  }));
+}
+
+function tokenCenter(token: TextToken) {
+  return token.x + token.width / 2;
+}
+
+function rankColumnKey(label: string): keyof ExamRanks | undefined {
+  const axis = label.replace(/ (DRC|DERECE|SIRA|SIRASI)$/, '');
+  if (/^(SB|SNF|SINIF|SUBE)$/.test(axis)) return 'sinif';
+  if (/^(KRM|KURUM|OKUL)$/.test(axis)) return 'okul';
+  if (axis === 'ILCE' || axis === 'IL' || axis === 'GENEL') return axis.toLowerCase() as 'ilce' | 'il' | 'genel';
+  return undefined;
 }
 
 /**
@@ -268,36 +298,23 @@ function detectDynamicTableLayout(
     const found: Array<{ key: SubjectKey | 'toplam'; x: number; centerX: number }> = [];
     const seen = new Set<string>();
 
-    for (const tok of line.tokens) {
+    // Compact reports can place a two-line subject label just above the main header.
+    const adjacent = lines.slice(Math.max(0, i - 3), i + 4)
+      .filter((candidate) => Math.abs(candidate.y - line.y) <= 7);
+    for (const tok of [line, ...adjacent.filter((candidate) => candidate !== line)].flatMap((candidate) => candidate.tokens)) {
       const norm = normalizeTurkish(tok.str);
-      if (norm === 'TOPLAM' || norm === 'TOP') {
-        if (!seen.has('toplam')) {
-          seen.add('toplam');
-          found.push({ key: 'toplam', x: tok.x, centerX: tok.x + tok.width / 2 });
-        }
-        continue;
-      }
-      const subj = matchSubjectLabel(tok.str);
-      if (subj && !seen.has(subj)) {
-        seen.add(subj);
-        found.push({ key: subj, x: tok.x, centerX: tok.x + tok.width / 2 });
+      const key = norm === 'TOPLAM' || norm === 'TOP' ? 'toplam' : matchSubjectLabel(tok.str);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        found.push({ key, x: tok.x, centerX: tokenCenter(tok) });
       }
     }
 
     const subjCount = found.filter((f) => f.key !== 'toplam').length;
     if (subjCount < 3) continue;
 
-    // Bonus if the line right below has D/Y/B/N sub-headers
-    let hasSubBelow = false;
-    const nextLine = lines[i + 1];
-    if (nextLine) {
-      const dybnCount = nextLine.tokens
-        .flatMap((t) => t.str.trim().split(/\s+/))
-        .filter((w) => /^(D|Y|B|N|NET)$/i.test(normalizeTurkish(w))).length;
-      if (dybnCount >= 6) hasSubBelow = true;
-    }
-
-    const score = subjCount * 10 + (seen.has('toplam') ? 5 : 0) + (hasSubBelow ? 8 : 0);
+    const onMainLine = line.tokens.filter((token) => matchSubjectLabel(token.str)).length;
+    const score = subjCount * 10 + (seen.has('toplam') ? 5 : 0) + onMainLine;
     if (score > bestScore) {
       bestScore = score;
       subjectLineIdx = i;
@@ -309,27 +326,13 @@ function detectDynamicTableLayout(
 
   const subjectLine = lines[subjectLineIdx];
 
-  // Check if next 1-2 lines below have D / Y / B / N sub-headers
-  let subHeaderTokens: TextToken[] = [];
-  for (let offset = 1; offset <= 2; offset++) {
-    const candidate = lines[subjectLineIdx + offset];
-    if (!candidate) break;
-    const expanded = candidate.tokens.flatMap((t) => {
-      if (t.str.includes(' ') && /^[DYBN\s]+$/i.test(t.str.trim())) {
-        const parts = t.str.trim().split(/\s+/);
-        const step = t.width / Math.max(1, parts.length);
-        return parts.map((p, idx) => ({ x: t.x + idx * step, y: t.y, width: step, str: p }));
-      }
-      return [t];
-    });
-    const dybnCount = expanded.filter((t) =>
-      /^(D|Y|B|N|NET|DOGRU|YANLIS|BOS)$/i.test(normalizeTurkish(t.str))
-    ).length;
-    if (dybnCount >= 6) {
-      subHeaderTokens = expanded;
-      break;
-    }
-  }
+  // Some columns print D/Y/N a few points lower than their neighbors.
+  const candidates = lines.slice(subjectLineIdx + 1, subjectLineIdx + 6)
+    .filter((line) => subjectLine.y - line.y <= 28)
+    .map((line) => line.tokens.flatMap(splitScoreHeaders).filter((token) => scoreHeader.test(normalizeTurkish(token.str))));
+  const firstMetricY = candidates.find((tokens) => tokens.length >= 3)?.[0].y;
+  const subHeaderTokens = firstMetricY === undefined ? [] : candidates.flat()
+    .filter((token) => Math.abs(token.y - firstMetricY) <= 7);
 
   // Estimate column span width from spacing between consecutive subject anchors
   const gaps: number[] = [];
@@ -351,7 +354,7 @@ function detectDynamicTableLayout(
         ? anchor.centerX + medianGap * 0.52
         : (anchor.centerX + nextCenter) / 2;
 
-    const colSubs = subHeaderTokens.filter((t) => t.x >= minX - 4 && t.x <= maxX + 4);
+    const colSubs = subHeaderTokens.filter((t) => tokenCenter(t) >= minX && tokenCenter(t) < maxX);
     let dX: number | undefined;
     let yX: number | undefined;
     let bX: number | undefined;
@@ -393,57 +396,84 @@ function detectDynamicTableLayout(
 
   // Locate left metadata columns (Sira, O.No, Isim, Sinif) from subjectLine tokens left of first subject
   const firstSubjX = columns[0].minX;
-  const leftHeaders = subjectLine.tokens.filter((t) => t.x < firstSubjX);
-
-  const siraTok = leftHeaders.find((t) => /^(SIRA|SR|NO\.?|#)$/i.test(normalizeTurkish(t.str)));
-  const noTok = leftHeaders.find((t) =>
-    /^(O NO|ONO|OGR NO|NUMARA|OKUL NO|NO)$/i.test(normalizeTurkish(t.str)) && t !== siraTok
+  const nearbyHeaders = lines.filter((line) => Math.abs(line.y - subjectLine.y) <= 9)
+    .flatMap((line) => line.tokens);
+  const leftHeaders = nearbyHeaders.filter((token) => token.x < firstSubjX);
+  const siraTok = leftHeaders.find((token) => /^(SIRA(?: NO)?|SR|#)$/i.test(normalizeTurkish(token.str)));
+  const noTok = leftHeaders.find((token) =>
+    /^(O NO|ONO|OGR NO|OGRENCI NO|NUMARA|OKUL NO|NO)$/.test(normalizeTurkish(token.str)) &&
+    (!siraTok || Math.abs(tokenCenter(token) - tokenCenter(siraTok)) > 8)
   );
-  const nameTok = leftHeaders.find((t) =>
-    /(ISIM|AD SOYAD|ADI SOYADI|OGRENCI)/i.test(normalizeTurkish(t.str))
-  );
-  const sinifTok = leftHeaders.find((t) => /(SINIF|SUBE|SNF)/i.test(normalizeTurkish(t.str)));
+  const nameTok = leftHeaders.find((token) => /^(ISIM|AD SOYAD|ADI SOYADI|OGRENCI)$/.test(normalizeTurkish(token.str)));
+  const classTok = leftHeaders.find((token) => /^(SINIF|SUBE|SNF|SB)$/.test(normalizeTurkish(token.str)));
 
-  // Locate LGS/Puan column right of last subject/toplam
   const lastColMaxX = columns[columns.length - 1].maxX;
-  const rightHeaders = [...subjectLine.tokens, ...subHeaderTokens].filter(
-    (t) => t.x >= lastColMaxX - 6
-  );
-  const lgsTok = rightHeaders.find((t) => /(LGS|PUAN|PUANI)/i.test(normalizeTurkish(t.str)));
-  const rankTok = rightHeaders.find((t) =>
-    /(DERECE|SNF|OKUL|ILCE|GENEL|SIRALAMA)/i.test(normalizeTurkish(t.str))
-  );
+  const rightHeaders = nearbyHeaders.filter((token) => token.x >= lastColMaxX - 6);
+  const lgsTok = rightHeaders.find((token) => /^(LGS(?: PUANI?)?|PUANI?)$/.test(normalizeTurkish(token.str)));
+  const ranks = new Map<keyof ExamRanks, number>();
+  for (const token of rightHeaders) {
+    const key = rankColumnKey(normalizeTurkish(token.str));
+    if (key && !ranks.has(key)) ranks.set(key, tokenCenter(token));
+  }
+  const rankColumns = [...ranks].map(([key, x]) => ({ key, x })).sort((a, b) => a.x - b.x);
+  const rankTok = rightHeaders.find((token) => /^(DERECE|SIRALAMA)$/.test(normalizeTurkish(token.str)));
 
-  const lgsMinX = lgsTok ? Math.max(lastColMaxX - 4, lgsTok.x - 10) : lastColMaxX;
-  const lgsMaxX = rankTok
-    ? Math.max(lgsMinX + 26, rankTok.x - 4)
-    : Math.min(pageWidth, lgsMinX + 42);
-
-  // Build reasonable ranges for Sira, No, Name, Sinif
-  const siraRange: [number, number] | undefined = siraTok
-    ? [Math.max(0, siraTok.x - 10), noTok ? noTok.x - 2 : siraTok.x + 18]
-    : [10, 39];
-
-  const noRange: [number, number] | undefined = noTok
-    ? [noTok.x - 5, nameTok ? nameTok.x - 2 : noTok.x + 22]
-    : [38, 59];
-
-  const sinifStart = sinifTok ? sinifTok.x - 8 : firstSubjX - 24;
-  const sinifRange: [number, number] = [sinifStart, firstSubjX + 2];
-
-  const nameStart = noRange ? noRange[1] - 1 : 55;
-  const nameRange: [number, number] = [nameStart, sinifRange[0] + 2];
+  const lgsMinX = lgsTok ? Math.max(lastColMaxX, lgsTok.x - 10) : lastColMaxX;
+  const lgsCenter = lgsTok ? tokenCenter(lgsTok) : lgsMinX + 14;
+  const lgsMaxX = rankColumns.length
+    ? (lgsCenter + rankColumns[0].x) / 2
+    : rankTok ? Math.max(lgsMinX + 26, rankTok.x - 4) : Math.min(pageWidth, lgsMinX + 42);
 
   return {
-    headerY: subHeaderTokens.length > 0 ? subHeaderTokens[0].y : subjectLine.y,
+    headerY: subHeaderTokens.length ? Math.min(...subHeaderTokens.map((token) => token.y)) : subjectLine.y,
     columns,
-    siraRange,
-    noRange,
-    nameRange,
-    sinifRange,
+    siraRange: siraTok ? [siraTok.x - 10, Math.min(noTok?.x ?? Infinity, classTok?.x ?? Infinity, siraTok.x + 18)] : undefined,
+    noRange: noTok ? [noTok.x - 5, nameTok && nameTok.x > noTok.x ? nameTok.x - 2 : noTok.x + 22] : undefined,
+    classX: classTok && tokenCenter(classTok),
     lgsRange: [lgsMinX, lgsMaxX],
     rankStartX: rankTok ? rankTok.x - 4 : lgsMaxX,
+    rankColumns,
     pageWidth,
+  };
+}
+
+function readTableScore(tokens: TextToken[], column: DynamicColumnDef) {
+  const numbers = tokens.flatMap((token) => {
+    const x = tokenCenter(token);
+    const value = parseTrNumber(token.str);
+    return x >= column.minX && x < column.maxX && value !== null
+      ? [{ x, value, decimal: isDecimalStr(token.str) }] : [];
+  });
+  const slots = [
+    { key: 'dogru', x: column.dX }, { key: 'yanlis', x: column.yX },
+    { key: 'bos', x: column.bX }, { key: 'net', x: column.nX },
+  ] as const;
+  const score: Partial<Pick<SubjectScore, 'dogru' | 'yanlis' | 'bos' | 'net'>> = {};
+  const distances = new Map<string, number>();
+  for (const number of numbers) {
+    let closest: typeof slots[number] | undefined;
+    let distance = Infinity;
+    for (const slot of slots) {
+      if (slot.x === undefined) continue;
+      const gap = Math.abs(slot.x - number.x);
+      if (gap < distance) {
+        closest = slot;
+        distance = gap;
+      }
+    }
+    if (closest && distance < (distances.get(closest.key) ?? Infinity)) {
+      distances.set(closest.key, distance);
+      score[closest.key] = number.value;
+    }
+  }
+  if (distances.size) return score;
+  if (numbers.length === 1 && numbers[0].decimal) {
+    return { net: numbers[0].value };
+  }
+  return {
+    dogru: numbers[0]?.value, yanlis: numbers[1]?.value,
+    bos: numbers.length >= 4 ? numbers[2]?.value : undefined,
+    net: numbers.slice(2).find((number) => number.decimal)?.value ?? numbers[3]?.value ?? numbers[2]?.value,
   };
 }
 
@@ -460,7 +490,7 @@ function parseTabularListPage(
 
   // Extract top header metadata if present (e.g., TRABZON / ARAKLI / OKUL / SINAV ADI)
   for (const line of lines) {
-    if (line.y > layout.headerY + 25) {
+    if (line.y > layout.headerY + 14) {
       const fullStr = line.tokens.map((t) => t.str).join(' ');
       if (
         !meta.examName &&
@@ -518,19 +548,15 @@ function parseTabularListPage(
     if (normFull.includes('GENEL ORTALAMA') || normFull.includes('OKUL ORTALAMA') || normFull.includes('KURUM ORTALAMA')) {
       const isGeneral = normFull.includes('GENEL ORTALAMA');
       for (const col of subjectCols) {
-        const colToks = expanded.filter((t) => t.x >= col.minX && t.x < col.maxX);
-        const netTok =
-          colToks.find((t) => isDecimalStr(t.str)) ?? colToks[colToks.length - 1];
-        const netVal = parseTrNumber(netTok?.str);
-        if (netVal !== null) {
+        const netVal = readTableScore(expanded, col).net;
+        if (netVal !== undefined) {
           if (isGeneral) meta.generalSubjectNets[col.key] = netVal;
           else meta.schoolSubjectNets[col.key] = netVal;
         }
       }
       if (toplamCol) {
-        const topToks = expanded.filter((t) => t.x >= toplamCol.minX && t.x < toplamCol.maxX);
-        const topNet = parseTrNumber(topToks.find((t) => isDecimalStr(t.str))?.str);
-        if (topNet !== null) {
+        const topNet = readTableScore(expanded, toplamCol).net;
+        if (topNet !== undefined) {
           if (isGeneral) meta.generalAvgToplamNet = topNet;
           else meta.schoolAvgToplamNet = topNet;
         }
@@ -550,8 +576,7 @@ function parseTabularListPage(
 
     // Skip footer / non-student rows
     if (
-      normFull.includes('SINIF ORTALAMA') ||
-      normFull.includes('SUBE ORTALAMA') ||
+      /(?:^| )ORTALAMA(?:LAR|SI)?(?: |$)/.test(normFull) ||
       normFull.startsWith('SAYFA ')
     ) {
       continue;
@@ -559,32 +584,28 @@ function parseTabularListPage(
 
     // Identify student row: must have a name left of the first subject column and numeric score values
     const firstSubjectMinX = layout.columns[0].minX;
-    const leftToks = expanded.filter((t) => t.x < firstSubjectMinX + 2);
+    const leftToks = expanded.filter((token) => tokenCenter(token) < firstSubjectMinX);
     if (leftToks.length === 0) continue;
 
-    // Class token anywhere in left section matching e.g. 8-A, 8/B, 8C, 8-XX
-    const sinifTok = leftToks.find((t) => /^\d{1,2}(?:[./-][A-ZÇĞİÖŞÜ0-9]{1,3}|[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ0-9]{0,2})$/i.test(t.str.trim()));
+    const intLeftToks = leftToks.filter((token) => /^\d+$/.test(token.str));
+    const siraRange = layout.siraRange;
+    if (siraRange && !intLeftToks.some((token) => tokenCenter(token) >= siraRange[0] && tokenCenter(token) < siraRange[1])) continue;
 
-    // Number tokens (sira and/or student no)
-    const intLeftToks = leftToks.filter(
-      (t) => /^\d+$/.test(t.str.trim()) && t !== sinifTok
-    );
-
-    let noVal = '0';
-    if (intLeftToks.length >= 2) {
-      noVal = intLeftToks[1].str.trim();
-    } else if (intLeftToks.length === 1) {
-      const only = intLeftToks[0];
-      if (layout.noRange && only.x >= layout.noRange[0] - 4) {
-        noVal = only.str.trim();
-      }
-    }
+    const classX = layout.classX;
+    const sinifTok = leftToks.find((token) => /^\d{1,2}(?:[./-][A-ZÇĞİÖŞÜ0-9]{1,3}|[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ0-9]{0,2})$/i.test(token.str))
+      ?? leftToks.find((token) => classX !== undefined && Math.abs(tokenCenter(token) - classX) <= 7 && /^[A-ZÇĞİÖŞÜ]{1,2}$/i.test(token.str));
+    const rawClass = sinifTok?.str;
+    const classroom = rawClass && /^\d/.test(rawClass) ? rawClass : rawClass ? `8-${rawClass}` : '8-XX';
+    const noRange = layout.noRange;
+    const noVal = (noRange
+      ? intLeftToks.find((token) => tokenCenter(token) >= noRange[0] && tokenCenter(token) < noRange[1])?.str
+      : intLeftToks[1]?.str) || '0';
 
     const nameToks = leftToks.filter(
       (t) =>
         t !== sinifTok &&
         !intLeftToks.includes(t) &&
-        /[A-Za-zÇĞİÖŞÜçğıöşü]{2,}/.test(t.str)
+        /\p{L}/u.test(t.str)
     );
     const name = nameToks.map((t) => t.str.trim()).join(' ').replace(/\s+/g, ' ').trim();
     if (!name || name.length < 3) continue;
@@ -603,61 +624,16 @@ function parseTabularListPage(
       fen: createEmptySubjectScore('fen'),
     };
 
-    let parsedAnyNumeric = false;
+    const unreadSubjects = new Set(SUBJECT_LIST.map(({ key }) => key));
     for (const col of subjectCols) {
-      const colToks = expanded.filter((t) => t.x >= col.minX - 2 && t.x < col.maxX + 2);
-      if (colToks.length === 0) continue;
-      parsedAnyNumeric = true;
-
-      let dVal = 0;
-      let yVal = 0;
-      let bVal: number | null = null;
-      let nVal: number | null = null;
-
-      if (colToks.length === 1 && isDecimalStr(colToks[0].str)) {
-        // Net-only table column
-        nVal = parseTrNumber(colToks[0].str);
-        dVal = Math.max(0, Math.round(nVal ?? 0));
-      } else {
-        for (const ct of colToks) {
-          const num = parseTrNumber(ct.str);
-          if (num === null) continue;
-          if (isDecimalStr(ct.str)) {
-            nVal = num;
-          } else {
-            // Assign to closest detected sub-column center (D, Y, B, N)
-            const candidates: Array<{ type: 'D' | 'Y' | 'B' | 'N'; dist: number }> = [];
-            const cx = ct.x + ct.width / 2;
-            if (col.dX !== undefined) candidates.push({ type: 'D', dist: Math.abs(cx - col.dX) });
-            if (col.yX !== undefined) candidates.push({ type: 'Y', dist: Math.abs(cx - col.yX) });
-            if (col.bX !== undefined) candidates.push({ type: 'B', dist: Math.abs(cx - col.bX) });
-            if (col.nX !== undefined) candidates.push({ type: 'N', dist: Math.abs(cx - col.nX) });
-
-            if (candidates.length > 0) {
-              candidates.sort((a, b) => a.dist - b.dist);
-              const winner = candidates[0].type;
-              if (winner === 'D') dVal = num;
-              else if (winner === 'Y') yVal = num;
-              else if (winner === 'B') bVal = num;
-              else if (winner === 'N' && nVal === null) nVal = num;
-            } else {
-              // Positional fallback inside column
-              const idx = colToks.indexOf(ct);
-              if (idx === 0) dVal = num;
-              else if (idx === 1) yVal = num;
-              else if (idx === 2 && colToks.length >= 4) bVal = num;
-              else nVal = num;
-            }
-          }
-        }
-      }
-
-      subjects[col.key] = createSubjectScore(col.key, dVal, yVal, nVal, null, {
-        bosOverride: bVal,
-      });
+      const value = readTableScore(expanded, col);
+      if (Object.values(value).every((metric) => metric === undefined)) continue;
+      unreadSubjects.delete(col.key);
+      const correct = value.dogru ?? (value.yanlis === undefined ? Math.max(0, Math.round(value.net ?? 0)) : 0);
+      subjects[col.key] = createSubjectScore(col.key, correct, value.yanlis ?? 0, value.net, null, { bosOverride: value.bos });
     }
 
-    if (!parsedAnyNumeric) continue;
+    if (unreadSubjects.size === SUBJECT_LIST.length) continue;
 
     // Parse Toplam and LGS Puanı
     let topD: number | undefined;
@@ -683,24 +659,29 @@ function parseTabularListPage(
       .sort((a, b) => a.x - b.x);
 
     if (toplamCol) {
-      const topInts = ints.filter((i) => i.x >= toplamCol.minX - 4 && i.x <= toplamCol.maxX + 4);
-      if (topInts.length >= 2) {
-        topD = topInts[0].val;
-        topY = topInts[1].val;
-        if (toplamCol.bX !== undefined && topInts.length >= 3) {
-          topB = topInts[2].val;
-        }
-      }
+      const score = readTableScore(expanded, toplamCol);
+      topD = score.dogru;
+      topY = score.yanlis;
+      topB = score.bos;
+      topNet = score.net;
     } else if (ints.length >= 2) {
       topD = ints[0].val;
       topY = ints[1].val;
     }
 
-    // Distinguish Total Net (<= 90) vs LGS Score (typically 100..500)
-    const lgsCandidate = decimals.find((d) => d.val > 95 && d.val <= 500);
-    const netCandidate = decimals.find((d) => d !== lgsCandidate && d.val >= -30 && d.val <= 90);
-    if (netCandidate) topNet = netCandidate.val;
-    if (lgsCandidate) lgsPuan = lgsCandidate.val;
+    const lgsRange = layout.lgsRange;
+    const lgsCandidate = lgsRange && expanded.find((token) => {
+      const x = tokenCenter(token);
+      const value = parseTrNumber(token.str);
+      return x >= lgsRange[0] && x < lgsRange[1] && value !== null && value > 95 && value <= 500;
+    });
+    const fallbackLgs = decimals.find((number) => number.val > 95 && number.val <= 500)?.val;
+    lgsPuan = parseTrNumber(lgsCandidate?.str) ?? fallbackLgs ?? 0;
+    const scoreTotals = createTotalScore(subjects);
+    const inconsistentTotal = (topD !== undefined && topD !== scoreTotals.dogru) ||
+      (topY !== undefined && topY !== scoreTotals.yanlis) ||
+      (topNet !== undefined && Math.abs(topNet - scoreTotals.net) > 0.04);
+    topNet ??= decimals.find((number) => number.val >= -30 && number.val <= 90)?.val;
 
     const toplam = createTotalScore(subjects, {
       dogru: topD,
@@ -716,7 +697,17 @@ function parseTabularListPage(
 
     // Dereceler (if present to the right of LGS)
     const dereceler: ExamRanks = {};
-    if (layout.rankStartX) {
+    if (layout.rankColumns.length >= 2) {
+      const rankNumbers = expanded.filter((token) => /^\d+$/.test(token.str));
+      layout.rankColumns.forEach(({ key, x }, index) => {
+        const previous = layout.rankColumns[index - 1];
+        const following = layout.rankColumns[index + 1];
+        const left = previous ? (previous.x + x) / 2 : layout.lgsRange?.[1] ?? x - 10;
+        const right = following ? (following.x + x) / 2 : layout.pageWidth;
+        const value = rankNumbers.find((token) => tokenCenter(token) >= left && tokenCenter(token) < right);
+        if (value) dereceler[key] = Number(value.str);
+      });
+    } else if (layout.rankStartX) {
       const rankToks = expanded
         .filter((t) => t.x >= layout.rankStartX! - 4 && /^\d+$/.test(t.str.trim()))
         .sort((a, b) => a.x - b.x);
@@ -738,11 +729,13 @@ function parseTabularListPage(
     rowsOut.push({
       numara: noVal,
       name,
-      sinif: sinifTok ? normalizeClassName(sinifTok.str) : '8-XX',
+      sinif: normalizeClassName(classroom),
       subjects,
       toplam,
       lgsPuan,
       dereceler,
+      unreadSubjects: [...unreadSubjects],
+      inconsistentTotal,
     });
   }
 
@@ -1356,6 +1349,7 @@ export async function parseExamPdf(
   const sonucPages: ParsedSonucBelgesi[] = [];
   let activeTabularLayout: DynamicTableLayout | null = null;
   let activeClassroom: string | undefined;
+  let dateFromPdf: string | undefined;
 
   for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
     const page = await pdfDoc.getPage(pageNum);
@@ -1382,6 +1376,16 @@ export async function parseExamPdf(
         .join(' ')
     );
 
+    const dateMatch = headerProbe.match(/SINAV TARIHI (\d{1,2}) (\d{1,2}) (\d{4})(?: |$)/);
+    if (!dateFromPdf && dateMatch) {
+      const [, day, month, year] = dateMatch;
+      const candidate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      const parsedDate = new Date(candidate);
+      if (Number.isFinite(parsedDate.getTime()) && parsedDate.toISOString().slice(0, 10) === candidate) {
+        dateFromPdf = candidate;
+      }
+    }
+
     const classList = headerProbe.match(/(?:^|\s)(\d{1,2}\s+[A-Z]) (?:SINIFI|SUBE) NET LISTESI/);
     const explicitSchoolList = /(?:OKUL|KURUM) NET LISTESI|SONUC LISTESI|SIRALI LISTE/.test(headerProbe);
     if (explicitSchoolList) activeClassroom = undefined;
@@ -1390,7 +1394,8 @@ export async function parseExamPdf(
     const isPerClassList = Boolean(activeClassroom) || explicitClassList;
 
     // Skip class/school summary-only report cards (ŞUBE KARNESİ / KURUM KARNESİ)
-    if (headerProbe.includes('SUBE KARNESI') || headerProbe.includes('KURUM KARNESI')) {
+    if (headerProbe.includes('SUBE KARNESI') || headerProbe.includes('KURUM KARNESI') ||
+      (!explicitSchoolList && /^(?:DERS BASARI ORANLARI|PUAN) KARSILASTIRMA GRAFIGI/.test(headerProbe))) {
       activeTabularLayout = null;
       activeClassroom = undefined;
       options?.onProgress?.(pageNum, totalPages);
@@ -1438,7 +1443,7 @@ export async function parseExamPdf(
   // Deduplicate okulListRows in case a PDF repeated students across sections
   const uniqueOkulMap = new Map<string, OkulListRow>();
   for (const row of okulListRows) {
-    const key = examRosterKey(row.numara, row.name, row.sinif);
+    const key = pdfResultKey(row);
     if (!uniqueOkulMap.has(key)) {
       uniqueOkulMap.set(key, row);
     }
@@ -1446,7 +1451,7 @@ export async function parseExamPdf(
   const coveredListRows = new Set<string>();
 
   const nowIso = new Date().toISOString();
-  const examDate = options?.examDate || nowIso.slice(0, 10);
+  const examDate = options?.examDate || dateFromPdf || nowIso.slice(0, 10);
   const examOrder = options?.examOrder ?? 1;
 
   const detectedExamName =
@@ -1464,8 +1469,11 @@ export async function parseExamPdf(
 
   if (sonucPages.length > 0) {
     for (const sp of sonucPages) {
-      const key = examRosterKey(sp.numara, sp.name, sp.sinif);
-      const listMatch = uniqueOkulMap.get(key);
+      const key = pdfResultKey(sp);
+      const identity = examRosterKey(sp.numara, sp.name, sp.sinif);
+      const sameIdentity = [...uniqueOkulMap.values()].filter((row) =>
+        examRosterKey(row.numara, row.name, row.sinif) === identity);
+      const listMatch = uniqueOkulMap.get(key) ?? (sameIdentity.length === 1 ? sameIdentity[0] : undefined);
 
       // Prefer OKUL NET LISTESI name if SONUÇ BELGESİ dropped a glyph (e.g. "ALİ AVCIO LU" -> "ALİ AVCIOĞLU")
       const cleanName =
@@ -1531,7 +1539,7 @@ export async function parseExamPdf(
         kazanimlar: sp.kazanimlar,
       };
 
-      if (listMatch && isAttendedExamRecord(record)) coveredListRows.add(key);
+      if (listMatch && isAttendedExamRecord(record)) coveredListRows.add(pdfResultKey(listMatch));
       records.push({
         studentKey: buildStudentKey(sp.numara, cleanName, sp.sinif),
         numara: sp.numara,
@@ -1590,7 +1598,7 @@ export async function parseExamPdf(
   const dedupedRecordsMap = new Map<string, ParsedExamBundle['records'][number]>();
   for (const item of records) {
     if (!isAttendedExamRecord(item.record)) continue;
-    const dedupKey = examRosterKey(item.numara, item.name, item.sinif);
+    const dedupKey = pdfResultKey({ ...item, dereceler: item.record.dereceler });
     const prev = dedupedRecordsMap.get(dedupKey);
     if (!prev) {
       dedupedRecordsMap.set(dedupKey, item);
@@ -1674,5 +1682,14 @@ export async function parseExamPdf(
     generalSubjectNets: okulListMeta.generalSubjectNets,
   };
 
-  return { examMeta, records };
+  const unreadSubjects = new Set([...uniqueOkulMap.values()].flatMap((row) => row.unreadSubjects));
+  const inconsistentTotals = [...uniqueOkulMap.values()].filter((row) => row.inconsistentTotal).length;
+  const warnings = [];
+  if (unreadSubjects.size) {
+    warnings.push(`Bazı sonuçlarda şu derslerin değerleri okunamadı: ${[...unreadSubjects].map((key) => SUBJECT_MAP[key].label).join(', ')}.`);
+  }
+  if (inconsistentTotals) {
+    warnings.push(`${inconsistentTotals} satırda ders değerleri PDF’deki toplamla uyuşmuyor. Sonuçları kaynak listeyle karşılaştırın.`);
+  }
+  return { examMeta, records, warnings };
 }

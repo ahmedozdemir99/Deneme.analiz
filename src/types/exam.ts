@@ -123,6 +123,7 @@ export interface ExamArchiveState {
 
 export interface ParsedExamBundle {
   examMeta: ExamMeta;
+  warnings?: string[];
   records: Array<{
     studentKey: string;
     numara: string;

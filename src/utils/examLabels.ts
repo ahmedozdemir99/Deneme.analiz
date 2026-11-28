@@ -63,6 +63,7 @@ export function matchSubjectLabel(raw: string): SubjectKey | null {
     norm === 'INK' ||
     norm === 'INKILAP' ||
     norm === 'SOSYAL' ||
+    norm.startsWith('SOSYAL BILGI') ||
     norm.includes('INKILAP') ||
     norm.includes('SOZEL TAR') ||
     norm.includes('T C INK') ||

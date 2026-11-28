@@ -56,21 +56,27 @@ function cleanStudentNo(numara: string | undefined): string {
 function findStudentMatch(
   students: Iterable<StudentProfile>,
   incoming: Pick<StudentProfile, 'numara' | 'name' | 'sinif'>,
-  examIds: ReadonlySet<string>,
+  incomingExams: readonly StudentExamRecord[],
 ): StudentProfile | undefined {
   const key = examRosterKey(incoming.numara, incoming.name, incoming.sinif);
   const name = buildNameSignature(incoming.name);
   const sortedName = buildSortedTokensSignature(incoming.name);
   const number = cleanStudentNo(incoming.numara);
   const classroom = normalizeClassName(incoming.sinif || '');
+  const incomingById = new Map(incomingExams.map((record) => [record.examId, record]));
   let best: StudentProfile | undefined;
   let bestScore = 0;
   let ambiguous = false;
 
   for (const student of students) {
-    if (examRosterKey(student.numara, student.name, student.sinif) === key) return student;
-    // Once this exam has a row for a profile, only the same roster identity may update it.
-    if (student.exams.some((exam) => examIds.has(exam.examId))) continue;
+    const sameIdentity = examRosterKey(student.numara, student.name, student.sinif) === key;
+    // A conflicting source rank separates two rows without numbered identities in the same exam.
+    const sharedExams = student.exams.filter((exam) => incomingById.has(exam.examId));
+    if (sharedExams.length && (!sameIdentity || (!number && sharedExams.some((exam) => {
+      const previousRank = exam.dereceler?.okul;
+      const incomingRank = incomingById.get(exam.examId)?.dereceler?.okul;
+      return previousRank && incomingRank && previousRank !== incomingRank;
+    })))) continue;
     const knownNumber = cleanStudentNo(student.numara);
     if (number && knownNumber && number !== knownNumber) continue;
     const sameNumber = Boolean(number && number === knownNumber);
@@ -78,7 +84,9 @@ function findStudentMatch(
     if (!sameClass && !sameNumber) continue;
     const candidateName = buildNameSignature(student.name);
     let score = 0;
-    if (name === candidateName || sortedName === buildSortedTokensSignature(student.name)) {
+    if (sameIdentity) {
+      score = sharedExams.length ? 5 : 4;
+    } else if (name === candidateName || sortedName === buildSortedTokensSignature(student.name)) {
       score = sameClass ? 3 : 2;
     } else if (sameClass && sameNumber && name.length >= 6 && editDistance(name, candidateName) <= 2) {
       score = 1;
@@ -192,8 +200,7 @@ export function deduplicateArchiveState(state: ExamArchiveState): {
     if (!rawStudent || !rawStudent.name) continue;
     const sinif = normalizeClassName(rawStudent.sinif || '8-A');
     const no = cleanStudentNo(rawStudent.numara);
-    const examIds = new Set((rawStudent.exams || []).map(({ examId }) => examId));
-    const target = findStudentMatch(mergedList, rawStudent, examIds);
+    const target = findStudentMatch(mergedList, rawStudent, rawStudent.exams || []);
 
     if (target) {
       const matchIdx = mergedList.indexOf(target);
@@ -369,7 +376,6 @@ export function mergeExamBundle(
   let matchedCount = 0;
   let newStudentsCount = 0;
 
-  const importingExamIds = new Set([examMeta.id]);
   for (const item of bundle.records) {
     const cleanSinif = normalizeClassName(item.sinif);
     const updatedRecord: StudentExamRecord = {
@@ -379,7 +385,7 @@ export function mergeExamBundle(
       examOrder: examMeta.examOrder,
     };
 
-    const existing = findStudentMatch(studentMap.values(), item, importingExamIds);
+    const existing = findStudentMatch(studentMap.values(), item, [updatedRecord]);
     if (existing) {
       matchedCount += 1;
       if ((!existing.numara || existing.numara === '0') && item.numara && item.numara !== '0') {

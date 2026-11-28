@@ -270,6 +270,49 @@ function textPdf(rows: string[][]) {
   return new TextEncoder().encode(pdf + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`).buffer;
 }
 
+async function rankedRosterPdf(inconsistent = false) {
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([595, 842]);
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const write = (text: string, x: number, y: number) => page.drawText(text, { x, y, size: 6, font });
+  write('Sinav Tarihi : 15.11.2026', 45, 802);
+  write('ORNEK ORTAOKULU', 45, 770);
+  write('PUAN SIRALI LISTE', 240, 770);
+  write('SIRA', 22, 755);
+  write('NO', 23, 748);
+  write('SB', 41, 751);
+  write('ADI SOYADI', 85, 751);
+  const labels = ['TURKCE', 'MATEMATIK', 'DIN KULTURU', 'FEN BILGISI', 'SOSYAL', 'YABANCI DIL', 'TOPLAM'];
+  labels.forEach((label, column) => {
+    const start = 152 + column * 42.5;
+    if (label === 'SOSYAL') write('BILGILER', start + 6, 751);
+    write(label, start + 5, label === 'SOSYAL' ? 759 : 755);
+    ['D.', 'Y.', 'N.'].forEach((metric, index) => write(metric, start + [0, 12, 26][index], label === 'SOSYAL' ? 744 : 748));
+  });
+  write('PUAN', 450, 751);
+  ['SB', 'KRM', 'ILCE', 'IL', 'GENEL'].forEach((label, index) => write(label, 478 + index * 20, 755));
+
+  for (const [index, history] of [10, 9].entries()) {
+    const y = 735 - index * 13;
+    write(String(index + 1), 33, y);
+    write('B', 43, y);
+    write('Deniz Ornek', 53, y);
+    const historyMissed = 10 - history;
+    const counts = [
+      [19, 1, '18,67'], [18, 2, '17,33'], [10, 0, '10,00'], [15, 5, '13,33'],
+      [history, historyMissed, history === 10 ? '10,00' : '8,67'], [9, 1, '8,67'],
+      [81 - historyMissed, inconsistent ? 95 : 9 + historyMissed, history === 10 ? '78,00' : '76,67'],
+    ];
+    counts.forEach((metrics, column) => metrics.forEach((value, metric) =>
+      write(String(value), 152 + column * 42.5 + [0, 13, 25][metric], y)));
+    write('438,125', 448, y);
+    [index + 1, index + 1, 5, 20, 2331].forEach((value, rank) => write(String(value), 485 + rank * 20, y));
+  }
+  write('ALT ORTALAMALAR', 72, 690);
+  write('3,40', 350, 690);
+  return pdf.save();
+}
+
 test('text PDF imports branch tables and keeps the complete full-exam roster alongside report cards', async () => {
   const dir = await mkdtemp(path.resolve('tests/.exam-imports-'));
   try {
@@ -290,6 +333,23 @@ test('text PDF imports branch tables and keeps the complete full-exam roster alo
     assert.equal(fullExam.records.length, 90);
     assert.equal(fullExam.records.filter(({ name }) => name === 'Deniz Kaya').length, 6);
     assert.equal(mergeExamBundle(EMPTY_ARCHIVE_STATE, fullExam).nextState.exams[0].studentCount, 90);
+    const ranked = await parseExamPdf(await rankedRosterPdf(), 'puan-sirali.pdf');
+    assert.equal(ranked.records.length, 2);
+    assert.equal(ranked.examMeta.examDate, '2026-11-15');
+    assert.equal(ranked.examMeta.schoolName, 'ORNEK ORTAOKULU');
+    assert.deepEqual(ranked.warnings, []);
+    assert.deepEqual(ranked.records.map(({ numara, sinif, record }) => [
+      numara, sinif, record.subjects.tarih.dogru, record.subjects.tarih.yanlis, record.subjects.tarih.net,
+      record.toplam.dogru, record.toplam.yanlis, record.toplam.net, record.lgsPuan, record.dereceler,
+    ]), [
+      ['0', '8-B', 10, 0, 10, 81, 9, 78, 438.125, { sinif: 1, okul: 1, ilce: 5, il: 20, genel: 2331 }],
+      ['0', '8-B', 9, 1, 8.67, 80, 10, 76.67, 438.125, { sinif: 2, okul: 2, ilce: 5, il: 20, genel: 2331 }],
+    ]);
+    const archived = mergeExamBundle(EMPTY_ARCHIVE_STATE, ranked).nextState;
+    assert.equal(deduplicateArchiveState(archived).state.exams[0].studentCount, 2);
+    const invalid = await parseExamPdf(await rankedRosterPdf(true), 'hatali-toplam.pdf');
+    assert.match(invalid.warnings?.[0] ?? '', /2 satırda/);
+
     const row = ['42', 'Ornek Ogrenci', '8-A', '20', '15', '3', '2', '14,00'];
     const options = { subject: 'matematik', questionCount: 20 } as const;
     for (const headers of [

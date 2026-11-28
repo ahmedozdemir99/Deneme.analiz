@@ -31,6 +31,7 @@ interface UploadResultSummary {
   matchedCount: number;
   newStudentsCount: number;
   fileNames: string[];
+  warnings: Array<{ fileName: string; message: string }>;
 }
 
 function isExcelFile(file: File): boolean {
@@ -58,7 +59,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [customExamName, setCustomExamName] = useState('');
-  const [examDate, setExamDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [examDate, setExamDate] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [progressText, setProgressText] = useState('');
@@ -133,9 +134,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       setResultSummary({
         ...stats,
         fileNames: selectedFiles.map((f) => f.name),
+        warnings: bundles.flatMap(({ examMeta, warnings }) =>
+          (warnings ?? []).map((message) => ({ fileName: examMeta.fileName, message }))),
       });
       setSelectedFiles([]);
       setCustomExamName('');
+      setExamDate('');
       setProgressPct(100);
     } catch (err) {
       setErrorMsg(
@@ -328,6 +332,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 disabled={isParsing}
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 tabular-nums focus:border-blue-600 focus:outline-none"
               />
+              <p className="mt-1 text-xs text-slate-500">Boş bırakırsanız PDF’deki sınav tarihi kullanılır. Tarih bulunamazsa bugünün tarihi kullanılır.</p>
             </div>
           </div>
 
@@ -374,6 +379,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 Önceki ve sonraki deneme karşılaştırmaları tüm öğrenci kartlarında ve Genel Bakış ekranında güncellendi.
               </p>
             </div>
+          )}
+          {resultSummary && resultSummary.warnings.length > 0 && (
+            <ul role="status" className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              {resultSummary.warnings.map(({ fileName, message }, index) => (
+                <li key={index} className="break-words"><strong>{fileName}</strong> · {message}</li>
+              ))}
+            </ul>
           )}
         </div>
 
