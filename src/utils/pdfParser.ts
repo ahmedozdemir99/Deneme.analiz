@@ -1,6 +1,5 @@
 import { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
 import { branchColumn, branchQuestionColumn, buildBranchResults, readBranchItems, validBranchColumns, type BranchTableColumn, type BranchItems, type BranchOptions, type BranchSourceRow } from './branchAnalysis';
-import * as pdfjsLib from 'pdfjs-dist';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   ExamMeta,
@@ -16,7 +15,11 @@ import {
   TOTAL_LGS_QUESTIONS,
 } from '../types/exam';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+async function loadPdfReader() {
+  const reader = await import('pdfjs-dist');
+  reader.GlobalWorkerOptions.workerSrc = workerSrc;
+  return reader;
+}
 
 export { buildStudentKey, matchSubjectLabel, normalizeClassName, normalizeTurkish } from './examLabels';
 
@@ -1284,6 +1287,7 @@ function readZipGradeBranchPage(lines: LineCluster[], options: BranchOptions): B
 }
 
 export async function parseBranchPdf(source: ArrayBuffer, options: BranchOptions) {
+  const pdfjsLib = await loadPdfReader();
   const task = pdfjsLib.getDocument({ data: new Uint8Array(source), useSystemFonts: true });
   try {
     const pdf = await task.promise;
@@ -1337,6 +1341,7 @@ export async function parseExamPdf(
     onProgress?: (currentPage: number, totalPages: number) => void;
   }
 ): Promise<ParsedExamBundle> {
+  const pdfjsLib = await loadPdfReader();
   const data = source instanceof Uint8Array ? source : new Uint8Array(source);
   const loadingTask = pdfjsLib.getDocument({ data, useSystemFonts: true });
   const pdfDoc = await loadingTask.promise;
