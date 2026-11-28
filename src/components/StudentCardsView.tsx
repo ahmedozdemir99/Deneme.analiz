@@ -218,7 +218,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
           )}
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <div className="mt-3 grid auto-rows-fr grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {sortedExams.map((exam, idx) => {
             const isSelected = selectedExamId === exam.id;
             const participantCount = examParticipantCounts.get(exam.id) ?? exam.studentCount;
@@ -227,7 +227,9 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 key={exam.id}
                 type="button"
                 onClick={() => setSelectedExamId(exam.id)}
-                className={`inline-flex min-h-10 min-w-0 max-w-full items-center gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-3 text-left text-xs font-semibold transition-colors ${
+                title={exam.name}
+                aria-pressed={isSelected}
+                className={`inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-3 text-left text-xs font-semibold transition-colors ${
                   isSelected
                     ? 'border-blue-700 bg-blue-700 text-white shadow-xs'
                     : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50/60 hover:text-blue-800'
@@ -240,7 +242,7 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
                 >
                   #{idx + 1}
                 </span>
-                <span className="min-w-0 truncate sm:max-w-[260px]">{exam.name}</span>
+                <span className="min-w-0 flex-1 truncate">{exam.name}</span>
                 <span
                   className={`shrink-0 font-mono text-[11px] tabular-nums ${
                     isSelected ? 'text-blue-100' : 'text-slate-500'
@@ -256,15 +258,16 @@ export const StudentCardsView: React.FC<StudentCardsViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedExamId('ALL')}
-              className={`inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-center text-xs sm:px-3 font-semibold transition-colors ${
+              aria-pressed={selectedExamId === 'ALL'}
+              className={`inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-center text-xs font-semibold leading-tight transition-colors sm:px-3 ${
                 selectedExamId === 'ALL'
                   ? 'border-slate-900 bg-slate-900 text-white shadow-xs'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
-              <span>Tümü (Deneme Ortalamaları)</span>
+              <span className="min-w-0">Tümü (Deneme Ortalamaları)</span>
               <span
-                className={`font-mono text-[11px] tabular-nums ${
+                className={`shrink-0 font-mono text-[11px] tabular-nums ${
                   selectedExamId === 'ALL' ? 'text-slate-300' : 'text-slate-400'
                 }`}
               >

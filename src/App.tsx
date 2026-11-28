@@ -189,9 +189,8 @@ export default function App() {
 
   return (
     <div className={`flex min-h-screen flex-col bg-[#F8FAFC] text-[#0F172A]${activeTab === 'branches' ? ' overflow-x-clip' : ''}`}>
-      {/* Clean 3-Zone Top Bar */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur-xs">
-        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-3 py-2 sm:min-h-16 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6 lg:px-8">
           {/* Zone 1: Brand */}
           <button
             type="button"
@@ -199,12 +198,12 @@ export default function App() {
               setSelectedStudentId(null);
               setActiveTab('students');
             }}
-            className="flex min-w-0 items-center gap-2 text-left sm:gap-2.5"
+            className="flex min-h-11 min-w-0 items-center gap-2 self-start text-left sm:gap-2.5 sm:self-center"
           >
             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-white sm:size-9">
               <GraduationCap className="h-5 w-5" />
             </div>
-            <div className="leading-tight">
+            <div className="min-w-0 leading-tight">
               <div className="font-display text-xs font-extrabold tracking-tight text-slate-900 sm:whitespace-nowrap sm:text-sm">
                 LGS Deneme Analiz
               </div>
@@ -214,33 +213,7 @@ export default function App() {
             </div>
           </button>
 
-          {/* Zone 2: Navigation */}
-          <nav className="hidden items-center gap-1 xl:flex" aria-label="Ana menü">
-            {navItems.map((item) => {
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    if (item.id !== 'students') setSelectedStudentId(null);
-                  }}
-                  className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors ${
-                    isActive
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Zone 3: Actions (Cloud Backup + PWA Install + Primary Upload CTA) */}
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <div className="flex min-w-0 items-center gap-1 sm:shrink-0 sm:gap-2 max-sm:*:flex-1 max-sm:[&>div>button]:w-full">
             <CloudBackupControl
               cloud={cloud}
               examCount={archive.exams.length}
@@ -249,7 +222,7 @@ export default function App() {
             <PWAInstallButton />
             <button type="button"
               onClick={() => setScan({ loaded: true, open: true })}
-              className="inline-flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 px-2 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-50 sm:px-3">
+              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-blue-200 px-2 text-xs font-semibold text-blue-800 hover:bg-blue-50 sm:gap-1.5 sm:px-3">
               <ScanLine className="size-4" />
               <span className="hidden sm:inline">Fotoğraftan PDF</span>
               <span className="sm:hidden">Tara</span>
@@ -257,7 +230,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsUploadOpen(true)}
-              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-blue-700 px-3 sm:gap-2 sm:px-3.5 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
+              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-blue-700 px-2 text-xs font-semibold text-white transition-colors hover:bg-blue-800 sm:gap-1.5 sm:px-3"
             >
               <FileUp className="h-4 w-4" />
               <span className="hidden sm:inline">PDF / Excel Yükle</span>
@@ -266,8 +239,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mobile navigation row */}
-        <div className="mx-auto grid max-w-7xl auto-rows-fr grid-cols-3 gap-1 min-[360px]:grid-cols-6 border-t border-slate-100 px-1.5 py-2 sm:px-6 xl:hidden">
+        <nav className="mx-auto grid max-w-7xl auto-rows-fr grid-cols-3 gap-1 border-t border-slate-100 px-3 py-1.5 min-[380px]:grid-cols-6 sm:gap-2 sm:px-6 lg:px-8" aria-label="Ana menü">
           {navItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
@@ -278,18 +250,19 @@ export default function App() {
                   setActiveTab(item.id);
                   if (item.id !== 'students') setSelectedStudentId(null);
                 }}
-                className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[10px] font-semibold leading-tight sm:text-xs ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-semibold leading-tight sm:min-h-11 sm:flex-row sm:gap-1.5 sm:px-2 sm:text-xs ${
                   isActive
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
                 {item.icon}
-                <span className="max-w-full text-center [overflow-wrap:anywhere]">{item.label}</span>
+                <span className="flex min-h-[2.5em] max-w-full items-center justify-center text-center [overflow-wrap:anywhere] sm:min-h-0">{item.label}</span>
               </button>
             );
           })}
-        </div>
+        </nav>
       </header>
 
       {/* Main Content Container */}
