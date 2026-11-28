@@ -53,7 +53,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}', '**/eng.traineddata.gz'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/__\/auth\//, /^\/__\/firebase\//],
           runtimeCaching: [
@@ -111,6 +111,15 @@ export default defineConfig(() => {
         },
       },
     ],
+    build: {
+      rolldownOptions: {
+        output: {
+          assetFileNames: asset => asset.names.includes('eng.traineddata.gz')
+            ? 'assets/ocr/[hash]/eng.traineddata.gz'
+            : 'assets/[name]-[hash][extname]',
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
